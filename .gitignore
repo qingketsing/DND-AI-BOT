@@ -1,0 +1,7 @@
+# 忽略包含敏感信息的文件
+api_key
+.env
+
+# 忽略TODO文件,编译后的文件
+TODO.md
+*.exe
