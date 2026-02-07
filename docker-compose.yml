@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  dndbot:
+    build: .
+    container_name: dndbot
+    restart: always
+    environment:
+      # Connection to NapCat (using service name 'napcat')
+      - ONEBOT_WS_URL=ws://napcat:3001
+      - ONEBOT_ACCESS_TOKEN=
+      
+      # AI Configuration
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.deepseek.com}
+      - MODEL_NAME=${MODEL_NAME:-deepseek-chat}
+    depends_on:
+      - napcat
+  
+  napcat:
+    image: mlikiowa/napcat-docker:latest
+    container_name: napcat
+    restart: unless-stopped
+    ports:
+      - "3001:3001" # WebUI & WS
+      - "6099:6099" 
+    volumes:
+      - ./napcat/config:/app/napcat/config
+      # Map specific config files if needed, or just let it generate
+    environment:
+      - ACCOUNT=${QQ_ACCOUNT}
+    stdin_open: true 
+    tty: true
+
+# Instructions:
+# 1. Create a .env file with OPENAI_API_KEY=sk-..., QQ_ACCOUNT=123456
+# 2. Run `docker-compose up -d`
+# 3. View logs of napcat to scan QR code: `docker logs -f napcat`
+# 4. Once logged in, NapCat will default to OneBot 11 on port 3001 (WS). 
+#    If the port differs in NapCat config, update ONEBOT_WS_URL above.

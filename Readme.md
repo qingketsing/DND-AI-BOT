@@ -77,8 +77,117 @@ go run .
 - [√] 角色卡与状态管理
 - [√] AI Action (自动扣血/投骰)
 - [√] 长期记忆 (摘要系统)
-- [ ] **OneBot V11 接入 (QQ Bot)** - *Next Step*
+- [x] **OneBot V11 接入 (QQ Bot)** - *已支持*
 - [ ] 更多 DND 5E 规则集成的 Prompt 优化
 
-## 🤝 贡献
-欢迎提交 Issue 或 PR 来改进这个项目！特别是 Prompt Engineering 方面的建议。
+## 🚢 部署指南：QQ 机器人 (Docker 一键部署)
+
+我们提供了一套基于 **Docker Compose** 的完整解决方案，包含了 DNDBot 核心服务以及 **NapCat** (一个开源的无头 QQ 客户端，支持各种OneBot协议)。
+
+### 1. 前置准备
+
+*   安装 [Docker](https://www.docker.com/) 和 [Docker Compose](https://docs.docker.com/compose/)。
+*   准备一个 **QQ 小号** 用于机器人登录（建议不要使用主号，以防风控）。
+*   准备好 DeepSeek 或其他兼容 OpenAI 格式的 **API Key**。
+
+### 2. 配置文件
+
+在项目根目录下创建或修改 `.env` 文件。请务必填入你的真实信息：
+
+```env
+# ========================
+# AI 模型配置 (必需)
+# ========================
+OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxx
+OPENAI_BASE_URL=https://api.deepseek.com
+MODEL_NAME=deepseek-chat
+
+# ========================
+# QQ 账号配置 (用于 NapCat 自动登录)
+# ========================
+QQ_ACCOUNT=123456789
+
+# ========================
+# 机器人连接配置
+# ========================
+# 如果使用 Docker Compose 部署，请保持为空或保持默认 (ws://napcat:3001)
+# 宿主机网络或本地调试则填写: ws://127.0.0.1:3001
+ONEBOT_WS_URL=ws://napcat:3001
+# 如果 NapCat 配置了 Token，请在此填写，否则留空
+ONEBOT_ACCESS_TOKEN=
+```
+
+### 3. 启动服务 (方式 A: Docker)
+
+```bash
+docker-compose up -d
+```
+
+### 3. 启动服务 (方式 B: Windows 本地运行 - 推荐)
+如果 Docker 网络有问题，请直接在 Windows 上运行：
+
+1.  **下载 NapCat**: 前往 [NapCat Release](https://github.com/NapNeko/NapCatQQ/releases) 下载最新 Windows 版本（如 `NapCat.Shell.zip`）。
+2.  **运行 NapCat**: 
+    * 解压并运行 `NapCat.Shell.exe`。
+    * 输入你的 QQ 号，按提示**扫码登录**。
+    * **重要配置**: 确保 NapCat 开启了 WebSocket 服务，端口为 **3001**。
+      *(NapCat 默认 WebUI 地址为 http://127.0.0.1:6099/webui，进入网络配置页面，添加一个 WebSocket Server，端口设为 3001，Host设为 0.0.0.0，并在 DNDBot 的 .env 中确保 ONEBOT_WS_URL=ws://127.0.0.1:3001)*
+3.  **启动机器人**:
+    * 直接双击 `run_local.bat` (如果你想进 CLI 模式)。
+    * 或者在终端运行 `go run main.go`。
+
+### 4. 扫码登录 QQ (Docker 模式)
+
+服务启动后，NapCat 容器需要你扫码登录 QQ。
+
+1.  查看日志获取二维码：
+    ```bash
+    docker logs -f napcat
+    ```
+2.  终端屏幕上会显示一个二维码，**请使用手机 QQ 扫描该二维码** 并确认登录。
+3.  看到 "登录成功" 或类似日志后，机器人即准备就绪。
+
+### 5. 群聊使用方法
+
+将你的机器人 QQ 拉入群聊，然后即可开始交互：
+
+*   **@机器人 + 文字**: 与 DM 进行对话，推进剧情。
+    *   *示例*: `@DNDBot 我向酒馆老板打听最近关于“失落矿坑”的传闻。`
+*   **`.r [表达式]`**: 投掷骰子。
+    *   *示例*: `.r 1d20+3`
+    *   机器人会回复你的点数，并将其记录到 DM 的后台日志中，供下一次剧情裁决使用。
+*   **DM 主动判定**:
+    *   如果 DM 认为你需要进行检定（如感知、敏捷豁免），它会在回复中说明，并可能直接帮你投暗骰，或者要求你自己投。
+    *   如果有战斗发生，Bot 会自动计算并在后台扣除你的 HP。
+
+---
+
+## 🛠️ 本地开发与 CLI 模式
+
+如果你不需要连接 QQ，只想在终端里快速测试 AI 逻辑：
+
+1.  确保 `.env` 中 **不要** 设置 `ONEBOT_WS_URL` (或将其留空)。
+2.  运行程序：
+    ```bash
+    go run .
+    ```
+3.  你将进入命令行交互模式，可以直接输入对话。
+
+### CLI 独有指令
+*   `.st [name] [class] [hp] [str]`: 创建一张临时角色卡。
+*   `.show`: 查看当前状态。
+*   `.reset`: 重置记忆。
+
+## ⚠️ 常见问题
+
+**Q: Docker 拉取镜像一直失败？**
+A: 这是通过由于国内网络环境导致 Docker Hub 访问受阻。请尝试配置国内镜像源（如阿里云、网易云），或者在本地开启代理。
+
+**Q: 扫码后 NapCat 提示异地登录或风控？**
+A: 新账号或长期未使用的账号容易触发风控。建议先在手机上挂几天，或者在同一网络环境下扫码。
+
+**Q: 机器人没有回复群消息？**
+A: 
+1. 检查 Logs: `docker logs dndbot` 查看是否有报错。
+2. 确认你是否 **@了机器人** (当前逻辑要求群聊必须 @ 才会触发回复)。
+3. 检查 API Key 余额是否充足。

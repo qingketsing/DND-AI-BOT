@@ -1,7 +1,40 @@
-# 忽略包含敏感信息的文件
-api_key
+# --- Secrets & Config ---
+# Ensure secrets are never committed
 .env
+api_key
+*.key
+*.pem
 
-# 忽略TODO文件,编译后的文件
-TODO.md
+# --- Build Output ---
+# Binaries for various platforms
 *.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+dndbot
+dndbot-test
+main
+
+# --- Logs ---
+*.log
+npm-debug.log*
+
+# --- IDEs ---
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# --- Project Specific ---
+# Previous ignore rules
+TODO.md
+
+# Docker / NapCat generated files (if any directories are mounted locally)
+napcat/logs/
+napcat/data/
