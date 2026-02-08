@@ -23,6 +23,14 @@ type Manager struct {
 
 var GlobalManager *Manager
 
+// SessionData 用于导出的数据结构
+type SessionData struct {
+	GroupID   int64
+	History   []openai.ChatCompletionMessage
+	Summary   string
+	MaxLength int
+}
+
 func InitManager() {
 	GlobalManager = &Manager{
 		sessions: make(map[int64]*Session),
@@ -77,9 +85,9 @@ func (s *Session) GetSummary() string {
 func (s *Session) UpdateSummary(newSummary string, keepCount int) {
 	s.Mutex.Lock()
 	defer s.Mutex.Unlock()
-	
+
 	s.Summary = newSummary
-	
+
 	// Prune History
 	if len(s.History) > keepCount {
 		s.History = s.History[len(s.History)-keepCount:]
@@ -95,6 +103,46 @@ func (s *Session) GetHistory() []openai.ChatCompletionMessage {
 	copied := make([]openai.ChatCompletionMessage, len(s.History))
 	copy(copied, s.History)
 	return copied
+}
+
+// ExportData 导出所有会话数据
+func (m *Manager) ExportData() map[int64]*SessionData {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+
+	data := make(map[int64]*SessionData)
+	for id, sess := range m.sessions {
+		sess.Mutex.RLock()
+		historyCopy := make([]openai.ChatCompletionMessage, len(sess.History))
+		copy(historyCopy, sess.History)
+
+		data[id] = &SessionData{
+			GroupID:   sess.GroupID,
+			History:   historyCopy,
+			Summary:   sess.Summary,
+			MaxLength: sess.MaxLength,
+		}
+		sess.Mutex.RUnlock()
+	}
+	return data
+}
+
+// ImportData 导入会话数据
+func (m *Manager) ImportData(data map[int64]*SessionData) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	for id, sData := range data {
+		// Reconstruct Session object
+		newSess := &Session{
+			GroupID:   sData.GroupID,
+			History:   make([]openai.ChatCompletionMessage, len(sData.History)),
+			Summary:   sData.Summary,
+			MaxLength: sData.MaxLength,
+		}
+		copy(newSess.History, sData.History)
+		m.sessions[id] = newSess
+	}
 }
 
 // Clear 清空历史

@@ -30,6 +30,12 @@ type StateManager struct {
 
 var GlobalGameState *StateManager
 
+// GroupStateData 用于导出的数据结构
+type GroupStateData struct {
+	GroupID    int64
+	Characters map[string]*Character
+}
+
 func InitGameState() {
 	GlobalGameState = &StateManager{
 		groups: make(map[int64]*GroupState),
@@ -90,4 +96,58 @@ func (g *GroupState) GetStatusSummary() string {
 			char.Name, char.Class, char.HP, char.MaxHP, char.STR))
 	}
 	return sb.String()
+}
+
+// GetCharacterStatus 获取单个角色的详细状态
+func (g *GroupState) GetCharacterStatus(name string) string {
+	char := g.GetCharacter(name)
+	if char == nil {
+		return fmt.Sprintf("找不到角色: %s", name)
+	}
+
+	return fmt.Sprintf("【角色详情】\nName: %s\nClass: %s\nHP: %d/%d\nSTR: %d",
+		char.Name, char.Class, char.HP, char.MaxHP, char.STR)
+}
+
+// ExportData 导出所有游戏状态
+func (m *StateManager) ExportData() map[int64]*GroupStateData {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+
+	data := make(map[int64]*GroupStateData)
+	for id, gs := range m.groups {
+		gs.Mutex.RLock()
+		charsCopy := make(map[string]*Character)
+		for k, v := range gs.Characters {
+			// Deep copy character struct
+			cVal := *v
+			charsCopy[k] = &cVal
+		}
+
+		data[id] = &GroupStateData{
+			GroupID:    gs.GroupID,
+			Characters: charsCopy,
+		}
+		gs.Mutex.RUnlock()
+	}
+	return data
+}
+
+// ImportData 导入游戏状态
+func (m *StateManager) ImportData(data map[int64]*GroupStateData) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	for id, gData := range data {
+		newState := &GroupState{
+			GroupID:    gData.GroupID,
+			Characters: make(map[string]*Character),
+		}
+
+		for k, v := range gData.Characters {
+			cVal := *v // Copy value
+			newState.Characters[k] = &cVal
+		}
+		m.groups[id] = newState
+	}
 }

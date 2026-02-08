@@ -38,3 +38,5 @@ TODO.md
 # Docker / NapCat generated files (if any directories are mounted locally)
 napcat/logs/
 napcat/data/
+napcat/config/
+napcat/global/

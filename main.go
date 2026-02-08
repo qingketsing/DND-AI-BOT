@@ -16,6 +16,7 @@ import (
 	"dndbot/pkg/dice"
 	"dndbot/pkg/game"
 	"dndbot/pkg/session"
+	"dndbot/pkg/snapshot"
 
 	"github.com/joho/godotenv"
 	openai "github.com/sashabaranov/go-openai"
@@ -44,11 +45,24 @@ func main() {
 	session.InitManager()
 	game.InitGameState()
 
+	// 3. Load Snapshot (if exists)
+	snap, filename, err := snapshot.LoadLatestSnapshot()
+	if err != nil {
+		logrus.Errorf("Failed to load snapshot: %v", err)
+	} else if snap != nil {
+		logrus.Infof("Restoring game state from %s (Time: %s)", filename, snap.Timestamp)
+		CurrentBackground = snap.CurrentBackground
+		session.GlobalManager.ImportData(snap.Sessions)
+		game.GlobalGameState.ImportData(snap.GameStates)
+	} else {
+		logrus.Info("No snapshot found. Starting fresh game.")
+	}
+
 	logrus.SetLevel(logrus.InfoLevel)
 
 	// Check Running Mode
 	wsURL := os.Getenv("ONEBOT_WS_URL")
-	
+
 	if *cliMode {
 		runCLI()
 	} else if wsURL != "" {
@@ -62,7 +76,7 @@ func runOneBot(wsURL string) {
 	fmt.Println("========================================")
 	fmt.Println("      DND Bot - OneBot Mode             ")
 	fmt.Println("========================================")
-	
+
 	token := os.Getenv("ONEBOT_ACCESS_TOKEN")
 	// selfID, _ := strconv.ParseInt(os.Getenv("ONEBOT_SELF_ID"), 10, 64)
 
@@ -71,9 +85,9 @@ func runOneBot(wsURL string) {
 		AccessToken: token,
 		// BotQQ is optional in our simple client if we parse raw message for any @self
 	}
-	
+
 	OneBotClient = bot.New(cfg)
-	
+
 	// Define Message Handler
 	OneBotClient.GroupMsgHandler = func(groupID int64, senderID int64, msg string) {
 		// Run in a goroutine is handled by the caller, but let's be safe and panic-proof
@@ -82,22 +96,22 @@ func runOneBot(wsURL string) {
 				logrus.Errorf("Panic in GroupMsgHandler: %v", r)
 			}
 		}()
-		
+
 		handleOneBotChat(groupID, senderID, msg)
 	}
-	
+
 	// Blocking call
 	OneBotClient.Start()
 	// Start returns immediately in our impl? No, I wrote it to spawn a goroutine.
 	// We need to block main.
-	select {} 
+	select {}
 }
 
 func runCLI() {
 	fmt.Println("========================================")
 	fmt.Println("      DND Bot - CLI Mode (Alpha)        ")
 	fmt.Println("========================================")
-	
+
 	// Check AI Connection
 	fmt.Print("Checking AI connection... ")
 	ckMsg := []openai.ChatCompletionMessage{
@@ -177,9 +191,16 @@ func handleCLICommand(input string) {
 		fmt.Printf("Bot: 角色卡已创建: %s (%s)\n", char.Name, char.Class)
 
 	case ".show":
-		summary := game.GlobalGameState.GetGroupState(groupID).GetStatusSummary()
-		fmt.Printf("Bot: %s\n", summary)
-		fmt.Printf("Bot: Current Background: %s\n", CurrentBackground)
+		if len(args) < 1 {
+			// 如果没有参数，显示简要列表（或者提示需要参数）
+			// 根据用户要求："使用指令的时候都要带一个角色名字的参数"
+			fmt.Println("Error: Usage .show [CharacterName]")
+			return
+		}
+		charName := args[0]
+		status := game.GlobalGameState.GetGroupState(groupID).GetCharacterStatus(charName)
+		fmt.Printf("Bot: %s\n", status)
+		// fmt.Printf("Bot: Current Background: %s\n", CurrentBackground) // 背景可能不需要每次显示单独角色时都显示
 
 	case ".bg":
 		if len(args) < 1 {
@@ -211,6 +232,22 @@ func handleCLICommand(input string) {
 		session.GlobalManager.GetSession(groupID).Clear()
 		fmt.Println("Bot: 记忆已清除。")
 
+	case ".snapshot":
+		filename, err := snapshot.SaveSnapshot(CurrentBackground)
+		if err != nil {
+			fmt.Printf("Error saving snapshot: %v\n", err)
+		} else {
+			fmt.Printf("Bot: Snapshot saved to %s\n", filename)
+		}
+
+	case ".delsnapshot":
+		filename, err := snapshot.DeleteLatestSnapshot()
+		if err != nil {
+			fmt.Printf("Error deleting snapshot: %v\n", err)
+		} else {
+			fmt.Printf("Bot: Deleted latest snapshot: %s\n", filename)
+		}
+
 	default:
 		fmt.Printf("Unknown command: %s\n", cmd)
 	}
@@ -221,7 +258,7 @@ func handleOneBotChat(groupID int64, senderID int64, msg string) {
 	// .check 指令：检查 AI 连通性
 	if msg == ".check" {
 		OneBotClient.SendGroupMsg(groupID, "[系统自检] 正在测试 AI 连接...")
-		
+
 		// 构造独立测试请求，不污染上下文
 		checkMsg := []openai.ChatCompletionMessage{
 			{Role: openai.ChatMessageRoleUser, Content: "System Check: Are you online? Reply with a short confirmation."},
@@ -241,8 +278,10 @@ func handleOneBotChat(groupID int64, senderID int64, msg string) {
 	if strings.HasPrefix(msg, ".r ") || msg == ".r" {
 		expression := strings.TrimPrefix(msg, ".r")
 		expression = strings.TrimSpace(expression)
-		if expression == "" { expression = "1d20" }
-		
+		if expression == "" {
+			expression = "1d20"
+		}
+
 		res, err := dice.Roll(expression)
 		if err != nil {
 			OneBotClient.SendGroupMsg(groupID, fmt.Sprintf("Dice Error: %v", err))
@@ -250,7 +289,7 @@ func handleOneBotChat(groupID int64, senderID int64, msg string) {
 		}
 		reply := fmt.Sprintf("[CQ:at,qq=%d] 投掷了 %s\n结果: %d %v", senderID, res.Expression, res.Total, res.Details)
 		OneBotClient.SendGroupMsg(groupID, reply)
-		
+
 		// Log to context
 		sess := session.GlobalManager.GetSession(groupID)
 		logMsg := fmt.Sprintf("【系统提示】玩家(QQ:%d) 投掷了 %s，最终结果: %d", senderID, res.Expression, res.Total)
@@ -258,28 +297,100 @@ func handleOneBotChat(groupID int64, senderID int64, msg string) {
 		return
 	}
 
+	// Handle .show command
+	if strings.HasPrefix(msg, ".show") {
+		parts := strings.Fields(msg)
+		if len(parts) < 2 {
+			OneBotClient.SendGroupMsg(groupID, "Usage: .show [CharacterName]")
+			return
+		}
+		charName := parts[1]
+		status := game.GlobalGameState.GetGroupState(groupID).GetCharacterStatus(charName)
+		OneBotClient.SendGroupMsg(groupID, status)
+		return
+	}
+
+	// Handle .st command (Create Character)
+	if strings.HasPrefix(msg, ".st ") {
+		parts := strings.Fields(msg)
+		// Usage: .st [name] [class] [hp] [str]
+		if len(parts) < 5 {
+			OneBotClient.SendGroupMsg(groupID, "Error: Usage .st [name] [class] [hp] [str]")
+			return
+		}
+
+		hp, err1 := strconv.Atoi(parts[3])
+		str, err2 := strconv.Atoi(parts[4])
+
+		if err1 != nil || err2 != nil {
+			OneBotClient.SendGroupMsg(groupID, "Error: HP and STR must be numbers.")
+			return
+		}
+
+		char := &game.Character{
+			Name:  parts[1],
+			Class: parts[2],
+			HP:    hp,
+			MaxHP: hp,
+			STR:   str,
+		}
+		game.GlobalGameState.GetGroupState(groupID).AddCharacter(char)
+		reply := fmt.Sprintf("【角色创建成功】\n姓名: %s\n职业: %s\nHP: %d/%d\nSTR: %d",
+			char.Name, char.Class, char.HP, char.MaxHP, char.STR)
+		OneBotClient.SendGroupMsg(groupID, reply)
+
+		// Log into context so AI "DM" knows about it
+		sess := session.GlobalManager.GetSession(groupID)
+		logMsg := fmt.Sprintf("【系统提示】玩家(QQ:%d) 创建了新角色: %s (职业:%s, HP:%d, STR:%d)",
+			senderID, char.Name, char.Class, char.HP, char.STR)
+		sess.AddMessage(openai.ChatMessageRoleUser, logMsg)
+		return
+	}
+
+	// Handle .snapshot command
+	if strings.HasPrefix(msg, ".snapshot") {
+		filename, err := snapshot.SaveSnapshot(CurrentBackground)
+		if err != nil {
+			OneBotClient.SendGroupMsg(groupID, fmt.Sprintf("Snapshot failed: %v", err))
+		} else {
+			OneBotClient.SendGroupMsg(groupID, fmt.Sprintf("Snapshot saved: %s", filename))
+		}
+		return
+	}
+
+	// Handle .delsnapshot command
+	if strings.HasPrefix(msg, ".delsnapshot") {
+		filename, err := snapshot.DeleteLatestSnapshot()
+		if err != nil {
+			OneBotClient.SendGroupMsg(groupID, fmt.Sprintf("Delete failed: %v", err))
+		} else {
+			OneBotClient.SendGroupMsg(groupID, fmt.Sprintf("Deleted latest snapshot: %s", filename))
+		}
+		return
+	}
+
 	// Normal Chat Flow
 	sess := session.GlobalManager.GetSession(groupID)
 	userLog := fmt.Sprintf("Player(QQ:%d): %s", senderID, msg)
 	sess.AddMessage(openai.ChatMessageRoleUser, userLog)
-	
+
 	// Get Reply
 	reply, err := getDMResponse(groupID, sess)
 	if err != nil {
 		OneBotClient.SendGroupMsg(groupID, fmt.Sprintf("(Available) AI Error: %v", err))
 		return
 	}
-	
+
 	// Send Reply
 	OneBotClient.SendGroupMsg(groupID, reply)
 	sess.AddMessage(openai.ChatMessageRoleAssistant, reply)
-	
+
 	// Process Actions
 	actionLogs := processAIActionsAndGetLogs(reply, groupID)
 	if len(actionLogs) > 0 {
 		OneBotClient.SendGroupMsg(groupID, strings.Join(actionLogs, "\n"))
 	}
-	
+
 	// Summary Logic
 	checkAndSummarize(groupID, sess)
 }
@@ -293,19 +404,19 @@ func handleCLIChat(input string) {
 	// Clear line logic... slightly messy in generic func
 	reply, err := getDMResponse(groupID, sess)
 	fmt.Print("\r" + strings.Repeat(" ", 30) + "\r")
-	
+
 	if err != nil {
 		fmt.Printf("Error calling AI: %v\n", err)
 		return
 	}
 	fmt.Printf("DM AI: %s\n", reply)
 	sess.AddMessage(openai.ChatMessageRoleAssistant, reply)
-	
+
 	actionLogs := processAIActionsAndGetLogs(reply, groupID)
 	for _, log := range actionLogs {
 		fmt.Printf(">> Bot Action: %s\n", log)
 	}
-	
+
 	checkAndSummarize(groupID, sess)
 }
 
@@ -348,7 +459,6 @@ func getDMResponse(groupID int64, sess *session.Session) (string, error) {
 	return ai.GlobalClient.ChatRequest(context.Background(), requests)
 }
 
-
 func checkAndSummarize(groupID int64, sess *session.Session) {
 	currentHistory := sess.GetHistory()
 	if len(currentHistory) >= 20 {
@@ -365,7 +475,7 @@ func performSummarization(groupID int64) {
 	promptContent := "请根据之前的摘要和最近的对话记录，生成一个新的、连贯的【剧情摘要】。\n" +
 		"摘要应包含：当前时间/地点、关键NPC、玩家当前状态、正在进行的任务以及重要物品变动。\n" +
 		"请只输出摘要内容，不要包含其他寒暄。\n\n"
-	
+
 	if oldSummary != "" {
 		promptContent += fmt.Sprintf("【之前的摘要】:\n%s\n\n", oldSummary)
 	}
@@ -409,7 +519,7 @@ type AIAction struct {
 
 func processAIActionsAndGetLogs(response string, groupID int64) []string {
 	var logs []string
-	
+
 	// Extract JSON block using Regex
 	re := regexp.MustCompile(`(?s)<dnd_action>(.*?)</dnd_action>`)
 	matches := re.FindStringSubmatch(response)
@@ -438,30 +548,38 @@ func processAIActionsAndGetLogs(response string, groupID int64) []string {
 	for _, action := range actions {
 		switch action.Type {
 		case "roll":
-			if action.Expr == "" { continue }
+			if action.Expr == "" {
+				continue
+			}
 			res, err := dice.Roll(action.Expr)
-			if err != nil { continue }
-			
+			if err != nil {
+				continue
+			}
+
 			msg := fmt.Sprintf("System: (AI Action) %s, Result: %s", action.Reason, res.String())
 			logs = append(logs, msg)
 			sess.AddMessage(openai.ChatMessageRoleSystem, msg)
 
 		case "hp":
-			if action.Target == "" { continue }
+			if action.Target == "" {
+				continue
+			}
 			char := groupState.GetCharacter(action.Target)
 			if char == nil {
 				logs = append(logs, fmt.Sprintf("Warning: AI tried to modify HP for unknown char '%s'", action.Target))
 				continue
 			}
-			
+
 			oldHP := char.HP
 			char.HP += action.Value
-			if char.HP > char.MaxHP { char.HP = char.MaxHP }
-			
+			if char.HP > char.MaxHP {
+				char.HP = char.MaxHP
+			}
+
 			msg := fmt.Sprintf("System: (AI Action) %s HP changes by %d (%d -> %d)", char.Name, action.Value, oldHP, char.HP)
 			logs = append(logs, msg)
 			sess.AddMessage(openai.ChatMessageRoleSystem, msg) // Update Session
-			
+
 			if char.HP <= 0 {
 				groupState.RemoveCharacter(char.Name)
 				deathMsg := fmt.Sprintf("【系统公告】角色 %s 生命耗尽，已确认死亡并退出了当前游戏。", char.Name)
@@ -474,4 +592,3 @@ func processAIActionsAndGetLogs(response string, groupID int64) []string {
 	}
 	return logs
 }
-
