@@ -21,6 +21,7 @@ RUN go build -o dndbot main.go
 FROM alpine:latest
 WORKDIR /app
 COPY --from=builder /app/dndbot .
+COPY background ./background
 
 # Optional: Copy .env if exists, though Env Vars are preferred in Docker
 # COPY .env .

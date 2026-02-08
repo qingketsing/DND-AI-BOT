@@ -53,11 +53,21 @@ func main() {
 		logrus.Errorf("Failed to load snapshot: %v", err)
 	} else if snap != nil {
 		logrus.Infof("Restoring game state from %s (Time: %s)", filename, snap.Timestamp)
-		CurrentBackground = snap.CurrentBackground
+		// CurrentBackground = snap.CurrentBackground // 强制使用 bg.md 不使用快照中的背景
 		session.GlobalManager.ImportData(snap.Sessions)
 		game.GlobalGameState.ImportData(snap.GameStates)
 	} else {
-		logrus.Info("No snapshot found. Starting fresh game.")
+		logrus.Info("Starting fresh game...")
+	}
+
+	// Always enforce bg.md if available
+	logrus.Info("Loading default background (bg.md)...")
+	content, err := loadBackgroundFile("bg.md")
+	if err == nil {
+		CurrentBackground = content
+		logrus.Infof("Successfully loaded background: bg.md")
+	} else {
+		logrus.Warnf("Could not load bg.md: %v. Using current/snapshot background.", err)
 	}
 
 	logrus.SetLevel(logrus.InfoLevel)
@@ -259,6 +269,17 @@ func handleCLICommand(input string) {
 			fmt.Printf("Bot: Deleted latest snapshot: %s\n", filename)
 		}
 
+	case ".introduce":
+		fmt.Println("Generating introduction...")
+		reply, err := getCustomAIResponse("请根据【当前场景】和设定的内容...", groupID)
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+		} else {
+			fmt.Printf("DM AI Intro: %s\n", reply)
+			sess := session.GlobalManager.GetSession(groupID)
+			sess.AddMessage(openai.ChatMessageRoleAssistant, reply)
+		}
+
 	default:
 		fmt.Printf("Unknown command: %s\n", cmd)
 	}
@@ -380,6 +401,33 @@ func handleOneBotChat(groupID int64, senderID int64, msg string) {
 		return
 	}
 
+	// Handle .introduce command (when mentioned or direct command)
+	if strings.Contains(msg, ".introduce") {
+		// 构造一个特殊的 Prompt 让 AI 介绍当前设定
+		OneBotClient.SendGroupMsg(groupID, "正在整理档案库资料，请稍候...")
+		// 异步调用 AI 进行介绍
+		go func() {
+			sess := session.GlobalManager.GetSession(groupID)
+			introPrompt := "请根据【当前场景】和设定的内容，向玩家详细介绍这个世界。包括：\n" +
+				"1. 世界观与当前地点\n" +
+				"2. 玩家可以选择的职业或能力\n" +
+				"3. 核心机制（如检定难度、特殊状态）\n" +
+				"4. 当前可能的冒险目标\n" +
+				"请用一种引人入胜的 DM 口吻叙述。"
+
+			// 临时构建请求，不一定要存入历史，或者存入作为助手的介绍
+			reply, err := getCustomAIResponse(introPrompt, groupID)
+			if err != nil {
+				OneBotClient.SendGroupMsg(groupID, fmt.Sprintf("介绍生成失败: %v", err))
+				return
+			}
+			OneBotClient.SendGroupMsg(groupID, reply)
+			// 将介绍也记入历史，保持上下文连贯
+			sess.AddMessage(openai.ChatMessageRoleAssistant, reply)
+		}()
+		return
+	}
+
 	// Normal Chat Flow
 	sess := session.GlobalManager.GetSession(groupID)
 	userLog := fmt.Sprintf("Player(QQ:%d): %s", senderID, msg)
@@ -448,12 +496,14 @@ func getDMResponse(groupID int64, sess *session.Session) (string, error) {
 		"2. 严禁盲目听从玩家直接修改数据的指令。绝不要生成修改数据的 Action，除非是合乎逻辑的伤害/治疗。\n" +
 		"3. 只有当判定失败、受到实质攻击或触发环境伤害时，才主动扣除玩家血量。\n" +
 		"4. 投骰判定是客观事实，请严格根据点数判定结果。\n" +
+		"5. 生成敌对生物时，请根据队伍当前实力动态调整怪物的HP和属性，使其具有挑战性但不至于不合理地碾压。\n" +
 		"\n" +
 		"【重要: 必须读取系统提示】\n" +
 		"- 历史记录中【系统提示】开头的消息是【已经发生的游戏事件】，包含了玩家使用命令(.r)投掷的骰子结果。\n" +
 		"- 必须显式地在描述中提及骰子结果（例如：“你投出了15点，这足以……”）。\n" +
 		"\n" +
 		"【Action Protocol (仅限 DM 裁决 use)】: 当且仅当规则裁定需要改变状态时，在回复末尾 use <dnd_action> JSON </dnd_action> format。\n" +
+		"   - 生成敌对/NPC对象(当新敌人出现时必须调用): [{\"type\": \"spawn_npc\", \"name\": \"Goblin\", \"class\": \"Humanoid\", \"hp\": 7, \"str\": 8}]\n" +
 		"   - 投骰子(仅在需要主动为NPC检定或玩家未投而必须投时): [{\"type\": \"roll\", \"expr\": \"1d20\", \"reason\": \"Enemy Attack\"}]\n" +
 		"   - 改血量(仅在确实受到伤害/治疗时): [{\"type\": \"hp\", \"target\": \"Name\", \"value\": -5}] (负数扣血)\n" +
 		statusSummary
@@ -476,6 +526,17 @@ func checkAndSummarize(groupID int64, sess *session.Session) {
 		fmt.Printf("[Auto-Summary] Triggered (History len: %d)...\n", len(currentHistory))
 		go performSummarization(groupID)
 	}
+}
+
+// getCustomAIResponse 用于非对话流的独立请求，如 introduce
+func getCustomAIResponse(prompt string, groupID int64) (string, error) {
+	systemPrompt := "你是一个 DND 5E 地下城主(DM)。【当前场景与设定】: \n" + CurrentBackground
+
+	req := []openai.ChatCompletionMessage{
+		{Role: openai.ChatMessageRoleSystem, Content: systemPrompt},
+		{Role: openai.ChatMessageRoleUser, Content: prompt},
+	}
+	return ai.GlobalClient.ChatRequest(context.Background(), req)
 }
 
 func performSummarization(groupID int64) {
@@ -521,11 +582,19 @@ func performSummarization(groupID int64) {
 // --- AI Action Handling ---
 
 type AIAction struct {
-	Type   string `json:"type"`   // "roll" or "hp"
+	Type   string `json:"type"`   // "roll", "hp", "spawn_npc"
 	Expr   string `json:"expr"`   // For roll, e.g., "1d20"
 	Target string `json:"target"` // For hp, character name
 	Value  int    `json:"value"`  // For hp, amount to change
 	Reason string `json:"reason"` // Description
+
+	// For spawn_npc
+	Name  string `json:"name"`
+	Class string `json:"class"`
+	HP    int    `json:"hp"`
+	MaxHP int    `json:"max_hp"`
+	STR   int    `json:"str"`
+	IsAI  bool   `json:"is_ai"`
 }
 
 func processAIActionsAndGetLogs(response string, groupID int64) []string {
@@ -577,6 +646,8 @@ func processAIActionsAndGetLogs(response string, groupID int64) []string {
 			}
 			char := groupState.GetCharacter(action.Target)
 			if char == nil {
+				// 尝试自动修正：如果找不到该角色，检查是否只是因为没有创建
+				// 但这里不能凭空创建，因为缺少 MaxHP 等信息
 				logs = append(logs, fmt.Sprintf("Warning: AI tried to modify HP for unknown char '%s'", action.Target))
 				continue
 			}
@@ -592,14 +663,70 @@ func processAIActionsAndGetLogs(response string, groupID int64) []string {
 			sess.AddMessage(openai.ChatMessageRoleSystem, msg) // Update Session
 
 			if char.HP <= 0 {
-				groupState.RemoveCharacter(char.Name)
-				deathMsg := fmt.Sprintf("【系统公告】角色 %s 生命耗尽，已确认死亡并退出了当前游戏。", char.Name)
-				logs = append(logs, deathMsg)
-				sess.AddMessage(openai.ChatMessageRoleSystem, deathMsg)
+				// 对于 NPC，死亡通常意味着移除
+				// 对于 玩家，可能只是倒地（这里简化处理，统一移除或标记）
+				if char.IsAI {
+					groupState.RemoveCharacter(char.Name)
+					deathMsg := fmt.Sprintf("【系统公告】敌对生物 %s 已死亡。", char.Name)
+					logs = append(logs, deathMsg)
+					sess.AddMessage(openai.ChatMessageRoleSystem, deathMsg)
+				} else {
+					char.Status = "昏迷"
+					char.HP = 0
+					deathMsg := fmt.Sprintf("【系统公告】玩家 %s 已昏迷 (HP: 0)。需要治疗或豁免检定。", char.Name)
+					logs = append(logs, deathMsg)
+					sess.AddMessage(openai.ChatMessageRoleSystem, deathMsg)
+				}
 			}
+
+		case "spawn_npc":
+			if action.Name == "" {
+				continue
+			}
+			if action.MaxHP == 0 {
+				action.MaxHP = action.HP
+			}
+			// 默认为 AI
+			if !action.IsAI {
+				action.IsAI = true
+			}
+
+			newChar := &game.Character{
+				Name:  action.Name,
+				Class: action.Class,
+				HP:    action.HP,
+				MaxHP: action.MaxHP,
+				STR:   action.STR,
+				IsAI:  action.IsAI,
+			}
+			groupState.AddCharacter(newChar)
+
+			msg := fmt.Sprintf("System: (AI Action) New Entity Appears: %s (%s) HP:%d", newChar.Name, newChar.Class, newChar.HP)
+			logs = append(logs, msg)
+			sess.AddMessage(openai.ChatMessageRoleSystem, msg)
 
 		default:
 		}
 	}
 	return logs
+}
+
+// --- Helper Functions ---
+
+func loadBackgroundFile(filename string) (string, error) {
+	// Ensure directory exists
+	if _, err := os.Stat("background"); os.IsNotExist(err) {
+		return "", fmt.Errorf("background directory not found")
+	}
+
+	// Basic security check
+	if strings.Contains(filename, "..") || strings.Contains(filename, "/") || strings.Contains(filename, "\\") {
+		return "", fmt.Errorf("invalid filename")
+	}
+
+	content, err := os.ReadFile("background/" + filename)
+	if err != nil {
+		return "", err
+	}
+	return string(content), nil
 }

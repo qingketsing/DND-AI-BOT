@@ -14,6 +14,8 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.deepseek.com}
       - MODEL_NAME=${MODEL_NAME:-deepseek-chat}
+    volumes:
+      - ./background:/app/background
     depends_on:
       - napcat
   

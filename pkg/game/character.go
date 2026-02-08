@@ -8,11 +8,13 @@ import (
 
 // Character 极简角色卡
 type Character struct {
-	Name  string `json:"name"`
-	Class string `json:"class"` // 职业: 战士, 法师...
-	HP    int    `json:"hp"`
-	MaxHP int    `json:"max_hp"`
-	STR   int    `json:"str"` // 力量
+	Name   string `json:"name"`
+	Class  string `json:"class"` // 职业: 战士, 法师...
+	HP     int    `json:"hp"`
+	MaxHP  int    `json:"max_hp"`
+	STR    int    `json:"str"` // 力量
+	IsAI   bool   `json:"is_ai"`
+	Status string `json:"status"` // 状态: 如"中毒", "倒地"
 }
 
 // GroupState 管理一个群内的游戏状态
@@ -86,14 +88,22 @@ func (g *GroupState) GetStatusSummary() string {
 	defer g.Mutex.RUnlock()
 
 	if len(g.Characters) == 0 {
-		return "当前没有玩家角色。"
+		return "当前没有角色。"
 	}
 
 	var sb strings.Builder
 	sb.WriteString("【当前角色状态】:\n")
 	for _, char := range g.Characters {
-		sb.WriteString(fmt.Sprintf("- %s (%s): HP %d/%d, STR %d\n",
-			char.Name, char.Class, char.HP, char.MaxHP, char.STR))
+		roleType := "PC"
+		if char.IsAI {
+			roleType = "NPC"
+		}
+		statusApp := ""
+		if char.Status != "" {
+			statusApp = fmt.Sprintf(" [%s]", char.Status)
+		}
+		sb.WriteString(fmt.Sprintf("- [%s] %s (%s): HP %d/%d, STR %d%s\n",
+			roleType, char.Name, char.Class, char.HP, char.MaxHP, char.STR, statusApp))
 	}
 	return sb.String()
 }
