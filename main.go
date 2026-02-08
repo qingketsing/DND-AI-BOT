@@ -7,9 +7,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"dndbot/pkg/ai"
 	"dndbot/pkg/bot"
@@ -134,6 +136,15 @@ func runCLI() {
 	fmt.Println("  .exit / .quit                  - 退出程序")
 	fmt.Println("Directly type to chat with DM AI.")
 	fmt.Println("========================================")
+
+	// 捕获 Ctrl+C，优雅退出，避免输入缓冲区泄漏到 shell
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		fmt.Println("\nBye!")
+		os.Exit(0)
+	}()
 
 	scanner := bufio.NewScanner(os.Stdin)
 	for {
