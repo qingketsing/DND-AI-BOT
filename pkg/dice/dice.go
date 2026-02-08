@@ -24,14 +24,17 @@ type RollResult struct {
 // 例如: 1d20, 2d6
 func Roll(expression string) (*RollResult, error) {
 	expression = strings.ToLower(strings.TrimSpace(expression))
-	re := regexp.MustCompile(`^(\d+)d(\d+)$`)
+	re := regexp.MustCompile(`^(\d*)d(\d+)$`)
 	matches := re.FindStringSubmatch(expression)
 
 	if len(matches) != 3 {
-		return nil, fmt.Errorf("invalid dice format, use XdY (e.g., 1d20)")
+		return nil, fmt.Errorf("骰子格式错误，请使用 [数量]d[面数] 的格式 (例如 d20, 1d20, 2d6)")
 	}
 
-	count, _ := strconv.Atoi(matches[1])
+	count := 1
+	if matches[1] != "" {
+		count, _ = strconv.Atoi(matches[1])
+	}
 	sides, _ := strconv.Atoi(matches[2])
 
 	if count > 100 {
