@@ -32,8 +32,6 @@ Thumbs.db
 Desktop.ini
 
 # --- Project Specific ---
-# Previous ignore rules
-TODO.md
 
 # Docker / NapCat generated files (if any directories are mounted locally)
 napcat/logs/
