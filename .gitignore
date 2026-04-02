@@ -1,0 +1,24 @@
+# Go 构建产物
+bin/
+dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Go 工作区与缓存
+.cache/
+coverage.out
+
+# IDE 和编辑器文件
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 本地环境变量文件
+.env
+.env.local
