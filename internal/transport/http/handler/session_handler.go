@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"../../../model"
-	"../../../repository/memory"
-	"../../../service"
-	"../dto"
+	"DND-AI-BOT/internal/model"
+	"DND-AI-BOT/internal/repository/memory"
+	"DND-AI-BOT/internal/service"
+	"DND-AI-BOT/internal/transport/http/dto"
 )
 
 // SessionHandler 负责处理会话相关 HTTP 请求。

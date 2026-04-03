@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"../model"
-	"../repository/memory"
+	"DND-AI-BOT/internal/model"
+	"DND-AI-BOT/internal/repository/memory"
 )
 
 func TestCreateSessionSavesSessionToRepository(t *testing.T) {

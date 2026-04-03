@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"../../../model"
-	"../../../repository/memory"
-	"../../../service"
+	"DND-AI-BOT/internal/model"
+	"DND-AI-BOT/internal/repository/memory"
+	"DND-AI-BOT/internal/service"
 )
 
 func TestCreateSessionReturnsCreatedSession(t *testing.T) {

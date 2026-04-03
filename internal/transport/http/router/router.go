@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"../handler"
+	"DND-AI-BOT/internal/transport/http/handler"
 )
 
 // NewRouter 创建最小 HTTP 路由器，并将请求分发到会话处理器。

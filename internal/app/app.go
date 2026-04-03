@@ -3,10 +3,10 @@ package app
 import (
 	"net/http"
 
-	"../repository/memory"
-	"../service"
-	httpHandler "../transport/http/handler"
-	"../transport/http/router"
+	"DND-AI-BOT/internal/repository/memory"
+	"DND-AI-BOT/internal/service"
+	httpHandler "DND-AI-BOT/internal/transport/http/handler"
+	"DND-AI-BOT/internal/transport/http/router"
 )
 
 // App 负责承载应用初始化后的根 HTTP handler。

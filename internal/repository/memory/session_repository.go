@@ -3,7 +3,7 @@ package memory
 import (
 	"sync"
 
-	"../../model"
+	"DND-AI-BOT/internal/model"
 )
 
 // SessionRepository 负责在内存中保存会话快照。

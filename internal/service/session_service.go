@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"../model"
-	"../repository/memory"
+	"DND-AI-BOT/internal/model"
+	"DND-AI-BOT/internal/repository/memory"
 )
 
 var (

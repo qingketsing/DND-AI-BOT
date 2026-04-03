@@ -3,7 +3,7 @@ package dto
 import (
 	"time"
 
-	"../../../model"
+	"DND-AI-BOT/internal/model"
 )
 
 // CreateSessionRequest 定义创建会话接口的请求体。

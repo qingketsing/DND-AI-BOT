@@ -4,7 +4,7 @@ import (
 	"log"
 	"net/http"
 
-	"../../internal/app"
+	"DND-AI-BOT/internal/app"
 )
 
 func main() {
