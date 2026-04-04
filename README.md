@@ -85,7 +85,7 @@ DND-AI-BOT/
 
 ## Community Co-Building
 
-- ❤️ Nightingale Contributors
+- ❤️ Contributors
 
 <a href="https://github.com/qingketsing/DND-AI-BOT/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=qingketsing/DND-AI-BOT" />
