@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -40,8 +41,9 @@ func TestCreateSessionReturnsCreatedSession(t *testing.T) {
 func TestGetSessionReturnsSessionAndMissingReturnsNotFound(t *testing.T) {
 	repository := memory.NewSessionRepository()
 	service := service.NewSessionService(repository)
+	ctx := context.Background()
 	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
-	session, err := service.CreateSession(model.ChannelWeb, now)
+	session, err := service.CreateSession(ctx, model.ChannelWeb, now)
 	if err != nil {
 		t.Fatalf("expected create session to succeed, got %v", err)
 	}
@@ -65,8 +67,9 @@ func TestGetSessionReturnsSessionAndMissingReturnsNotFound(t *testing.T) {
 func TestSendMessageReturnsUpdatedSession(t *testing.T) {
 	repository := memory.NewSessionRepository()
 	service := service.NewSessionService(repository)
+	ctx := context.Background()
 	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
-	session, err := service.CreateSession(model.ChannelWeb, now)
+	session, err := service.CreateSession(ctx, model.ChannelWeb, now)
 	if err != nil {
 		t.Fatalf("expected create session to succeed, got %v", err)
 	}

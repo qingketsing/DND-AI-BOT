@@ -1,0 +1,8 @@
+.git
+.gitignore
+.cache
+.codex
+bin
+dist
+tmp
+*.log

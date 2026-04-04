@@ -1,0 +1,66 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: dnd-postgres
+    environment:
+      POSTGRES_DB: dndbot
+      POSTGRES_USER: dnd
+      POSTGRES_PASSWORD: dndpass
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dnd -d dndbot"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    container_name: dnd-redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dnd-app
+    environment:
+      POSTGRES_DSN: postgres://dnd:dndpass@postgres:5432/dndbot?sslmode=disable
+      POSTGRES_ADDR: postgres:5432
+      REDIS_ADDR: redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  tester:
+    image: golang:1.25.6
+    container_name: dnd-tester
+    working_dir: /workspace
+    environment:
+      INTEGRATION_TEST: "1"
+      POSTGRES_TEST_DSN: postgres://dnd:dndpass@postgres:5432/dndbot?sslmode=disable
+      REDIS_TEST_ADDR: redis:6379
+      GOCACHE: /tmp/go-build
+    volumes:
+      - .:/workspace
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:

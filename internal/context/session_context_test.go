@@ -1,6 +1,7 @@
 package context
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -11,7 +12,7 @@ import (
 func TestGetSessionReturnsStoredSession(t *testing.T) {
 	store, session := newTestSessionContextStore(t)
 
-	got, err := store.GetSession(session.ID)
+	got, err := store.GetSession(context.Background(), session.ID)
 	if err != nil {
 		t.Fatalf("expected get session to succeed, got %v", err)
 	}
@@ -23,7 +24,7 @@ func TestGetSessionReturnsStoredSession(t *testing.T) {
 func TestGetRecentRecordsReturnsLastNRecords(t *testing.T) {
 	store, session := newTestSessionContextStore(t)
 
-	records, err := store.GetRecentRecords(session.ID, 2)
+	records, err := store.GetRecentRecords(context.Background(), session.ID, 2)
 	if err != nil {
 		t.Fatalf("expected get recent records to succeed, got %v", err)
 	}
@@ -38,7 +39,7 @@ func TestGetRecentRecordsReturnsLastNRecords(t *testing.T) {
 func TestGetLastRecordReturnsLatestRecord(t *testing.T) {
 	store, session := newTestSessionContextStore(t)
 
-	record, ok, err := store.GetLastRecord(session.ID)
+	record, ok, err := store.GetLastRecord(context.Background(), session.ID)
 	if err != nil {
 		t.Fatalf("expected get last record to succeed, got %v", err)
 	}
@@ -53,7 +54,7 @@ func TestGetLastRecordReturnsLatestRecord(t *testing.T) {
 func TestGetChannelReturnsSessionChannel(t *testing.T) {
 	store, session := newTestSessionContextStore(t)
 
-	channel, err := store.GetChannel(session.ID)
+	channel, err := store.GetChannel(context.Background(), session.ID)
 	if err != nil {
 		t.Fatalf("expected get channel to succeed, got %v", err)
 	}
@@ -72,7 +73,7 @@ func newTestSessionContextStore(t *testing.T) (*DefaultSessionContextStore, *mod
 	session.AppendUserMessage(model.User{ID: "user-1", Name: "Alice"}, "hello", now.Add(2*time.Minute))
 	session.AppendAgentMessage(model.User{ID: "agent-1", Name: "DM Agent"}, "reply", now.Add(3*time.Minute))
 
-	if err := repository.Save(session); err != nil {
+	if err := repository.Save(context.Background(), session); err != nil {
 		t.Fatalf("expected save to succeed, got %v", err)
 	}
 

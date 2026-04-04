@@ -5,6 +5,7 @@ import "time"
 // Encounter 表示一场最小可运行的战斗。
 type Encounter struct {
 	ID         string
+	SessionID  string
 	Combatants []Combatant
 	Round      int
 	TurnIndex  int
@@ -13,9 +14,10 @@ type Encounter struct {
 }
 
 // NewEncounter 创建一场新的战斗。
-func NewEncounter(id string, combatants []Combatant, now time.Time) *Encounter {
+func NewEncounter(id string, sessionID string, combatants []Combatant, now time.Time) *Encounter {
 	return &Encounter{
 		ID:         id,
+		SessionID:  sessionID,
 		Combatants: combatants,
 		Round:      1,
 		TurnIndex:  0,

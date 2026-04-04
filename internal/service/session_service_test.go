@@ -1,20 +1,23 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
 
 	"DND-AI-BOT/internal/model"
+	"DND-AI-BOT/internal/repository"
 	"DND-AI-BOT/internal/repository/memory"
 )
 
 func TestCreateSessionSavesSessionToRepository(t *testing.T) {
-	repository := memory.NewSessionRepository()
-	service := NewSessionService(repository)
+	sessionRepository := memory.NewSessionRepository()
+	service := NewSessionService(sessionRepository)
+	ctx := context.Background()
 	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
 
-	session, err := service.CreateSession(model.ChannelWeb, now)
+	session, err := service.CreateSession(ctx, model.ChannelWeb, now)
 	if err != nil {
 		t.Fatalf("expected create session to succeed, got %v", err)
 	}
@@ -24,31 +27,31 @@ func TestCreateSessionSavesSessionToRepository(t *testing.T) {
 	if session.Channel != model.ChannelWeb {
 		t.Fatalf("expected session channel %q, got %q", model.ChannelWeb, session.Channel)
 	}
-	if !repository.Exists(session.ID) {
+	if !sessionRepository.Exists(session.ID) {
 		t.Fatalf("expected repository to contain session %q", session.ID)
 	}
 }
 
 func TestGetSessionReturnsNotFoundForMissingSession(t *testing.T) {
-	repository := memory.NewSessionRepository()
-	service := NewSessionService(repository)
+	service := NewSessionService(memory.NewSessionRepository())
+	ctx := context.Background()
 
-	_, err := service.GetSession("missing")
-	if !errors.Is(err, memory.ErrSessionNotFound) {
+	_, err := service.GetSession(ctx, "missing")
+	if !errors.Is(err, repository.ErrSessionNotFound) {
 		t.Fatalf("expected ErrSessionNotFound, got %v", err)
 	}
 }
 
 func TestSendMessageAppendsUserAndMockReply(t *testing.T) {
-	repository := memory.NewSessionRepository()
-	service := NewSessionService(repository)
+	service := NewSessionService(memory.NewSessionRepository())
+	ctx := context.Background()
 	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
-	session, err := service.CreateSession(model.ChannelWeb, now)
+	session, err := service.CreateSession(ctx, model.ChannelWeb, now)
 	if err != nil {
 		t.Fatalf("expected create session to succeed, got %v", err)
 	}
 
-	updated, err := service.SendMessage(SendMessageInput{
+	updated, err := service.SendMessage(ctx, SendMessageInput{
 		SessionID: session.ID,
 		UserID:    "user-1",
 		UserName:  "Alice",
@@ -72,15 +75,15 @@ func TestSendMessageAppendsUserAndMockReply(t *testing.T) {
 }
 
 func TestSendMessageRejectsEmptyContent(t *testing.T) {
-	repository := memory.NewSessionRepository()
-	service := NewSessionService(repository)
+	service := NewSessionService(memory.NewSessionRepository())
+	ctx := context.Background()
 	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
-	session, err := service.CreateSession(model.ChannelWeb, now)
+	session, err := service.CreateSession(ctx, model.ChannelWeb, now)
 	if err != nil {
 		t.Fatalf("expected create session to succeed, got %v", err)
 	}
 
-	_, err = service.SendMessage(SendMessageInput{
+	_, err = service.SendMessage(ctx, SendMessageInput{
 		SessionID: session.ID,
 		UserID:    "user-1",
 		UserName:  "Alice",
@@ -92,11 +95,11 @@ func TestSendMessageRejectsEmptyContent(t *testing.T) {
 }
 
 func TestCreateSessionRejectsInvalidChannel(t *testing.T) {
-	repository := memory.NewSessionRepository()
-	service := NewSessionService(repository)
+	service := NewSessionService(memory.NewSessionRepository())
+	ctx := context.Background()
 	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
 
-	_, err := service.CreateSession(model.Channel("desktop"), now)
+	_, err := service.CreateSession(ctx, model.Channel("desktop"), now)
 	if !errors.Is(err, ErrInvalidChannel) {
 		t.Fatalf("expected ErrInvalidChannel, got %v", err)
 	}

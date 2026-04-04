@@ -1,16 +1,18 @@
 package context
 
 import (
+	"context"
+
 	"DND-AI-BOT/internal/model"
 	"DND-AI-BOT/internal/repository/memory"
 )
 
 // SessionContextStore 定义通用会话上下文读取接口。
 type SessionContextStore interface {
-	GetSession(sessionID string) (*model.Session, error)
-	GetRecentRecords(sessionID string, limit int) ([]model.HistoryRecord, error)
-	GetLastRecord(sessionID string) (model.HistoryRecord, bool, error)
-	GetChannel(sessionID string) (model.Channel, error)
+	GetSession(ctx context.Context, sessionID string) (*model.Session, error)
+	GetRecentRecords(ctx context.Context, sessionID string, limit int) ([]model.HistoryRecord, error)
+	GetLastRecord(ctx context.Context, sessionID string) (model.HistoryRecord, bool, error)
+	GetChannel(ctx context.Context, sessionID string) (model.Channel, error)
 }
 
 // DefaultSessionContextStore 基于会话仓库实现通用上下文读取。
@@ -24,13 +26,13 @@ func NewSessionContextStore(repository *memory.SessionRepository) *DefaultSessio
 }
 
 // GetSession 读取完整会话。
-func (s *DefaultSessionContextStore) GetSession(sessionID string) (*model.Session, error) {
-	return s.repository.Load(sessionID)
+func (s *DefaultSessionContextStore) GetSession(ctx context.Context, sessionID string) (*model.Session, error) {
+	return s.repository.Load(ctx, sessionID)
 }
 
 // GetRecentRecords 返回最近的 limit 条历史记录。
-func (s *DefaultSessionContextStore) GetRecentRecords(sessionID string, limit int) ([]model.HistoryRecord, error) {
-	session, err := s.repository.Load(sessionID)
+func (s *DefaultSessionContextStore) GetRecentRecords(ctx context.Context, sessionID string, limit int) ([]model.HistoryRecord, error) {
+	session, err := s.repository.Load(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -47,8 +49,8 @@ func (s *DefaultSessionContextStore) GetRecentRecords(sessionID string, limit in
 }
 
 // GetLastRecord 返回会话中的最后一条记录。
-func (s *DefaultSessionContextStore) GetLastRecord(sessionID string) (model.HistoryRecord, bool, error) {
-	session, err := s.repository.Load(sessionID)
+func (s *DefaultSessionContextStore) GetLastRecord(ctx context.Context, sessionID string) (model.HistoryRecord, bool, error) {
+	session, err := s.repository.Load(ctx, sessionID)
 	if err != nil {
 		return model.HistoryRecord{}, false, err
 	}
@@ -58,8 +60,8 @@ func (s *DefaultSessionContextStore) GetLastRecord(sessionID string) (model.Hist
 }
 
 // GetChannel 返回会话绑定的渠道。
-func (s *DefaultSessionContextStore) GetChannel(sessionID string) (model.Channel, error) {
-	session, err := s.repository.Load(sessionID)
+func (s *DefaultSessionContextStore) GetChannel(ctx context.Context, sessionID string) (model.Channel, error) {
+	session, err := s.repository.Load(ctx, sessionID)
 	if err != nil {
 		return "", err
 	}

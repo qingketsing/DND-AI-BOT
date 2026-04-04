@@ -8,12 +8,15 @@ import (
 
 func TestNewEncounterInitializesState(t *testing.T) {
 	now := time.Date(2026, 4, 3, 12, 0, 0, 0, time.UTC)
-	encounter := NewEncounter("encounter-1", []Combatant{
+	encounter := NewEncounter("encounter-1", "session-1", []Combatant{
 		NewCombatant("c1", "Hero", CombatSideParty, 20, 15, 12),
 	}, now)
 
 	if encounter.ID != "encounter-1" {
 		t.Fatalf("expected encounter id encounter-1, got %q", encounter.ID)
+	}
+	if encounter.SessionID != "session-1" {
+		t.Fatalf("expected session id session-1, got %q", encounter.SessionID)
 	}
 	if encounter.Round != 1 {
 		t.Fatalf("expected round 1, got %d", encounter.Round)
@@ -28,7 +31,7 @@ func TestNewEncounterInitializesState(t *testing.T) {
 
 func TestCurrentCombatantReturnsCurrentUnit(t *testing.T) {
 	now := time.Date(2026, 4, 3, 12, 0, 0, 0, time.UTC)
-	encounter := NewEncounter("encounter-1", []Combatant{
+	encounter := NewEncounter("encounter-1", "session-1", []Combatant{
 		NewCombatant("c1", "Hero", CombatSideParty, 20, 15, 12),
 		NewCombatant("c2", "Goblin", CombatSideEnemy, 8, 13, 10),
 	}, now)
@@ -44,7 +47,7 @@ func TestCurrentCombatantReturnsCurrentUnit(t *testing.T) {
 
 func TestAdvanceTurnMovesToNextCombatantAndRound(t *testing.T) {
 	now := time.Date(2026, 4, 3, 12, 0, 0, 0, time.UTC)
-	encounter := NewEncounter("encounter-1", []Combatant{
+	encounter := NewEncounter("encounter-1", "session-1", []Combatant{
 		NewCombatant("c1", "Hero", CombatSideParty, 20, 15, 12),
 		NewCombatant("c2", "Goblin", CombatSideEnemy, 8, 13, 10),
 	}, now)
@@ -68,7 +71,7 @@ func TestAdvanceTurnMovesToNextCombatantAndRound(t *testing.T) {
 
 func TestApplyDamageReducesHPAndSetsDownStatus(t *testing.T) {
 	now := time.Date(2026, 4, 3, 12, 0, 0, 0, time.UTC)
-	encounter := NewEncounter("encounter-1", []Combatant{
+	encounter := NewEncounter("encounter-1", "session-1", []Combatant{
 		NewCombatant("c1", "Hero", CombatSideParty, 20, 15, 12),
 	}, now)
 
@@ -90,7 +93,7 @@ func TestApplyDamageReducesHPAndSetsDownStatus(t *testing.T) {
 
 func TestHealRestoresHPAndActiveStatus(t *testing.T) {
 	now := time.Date(2026, 4, 3, 12, 0, 0, 0, time.UTC)
-	encounter := NewEncounter("encounter-1", []Combatant{
+	encounter := NewEncounter("encounter-1", "session-1", []Combatant{
 		NewCombatant("c1", "Hero", CombatSideParty, 20, 15, 12),
 	}, now)
 
@@ -115,7 +118,7 @@ func TestHealRestoresHPAndActiveStatus(t *testing.T) {
 
 func TestFindCombatantReturnsErrorWhenMissing(t *testing.T) {
 	now := time.Date(2026, 4, 3, 12, 0, 0, 0, time.UTC)
-	encounter := NewEncounter("encounter-1", []Combatant{
+	encounter := NewEncounter("encounter-1", "session-1", []Combatant{
 		NewCombatant("c1", "Hero", CombatSideParty, 20, 15, 12),
 	}, now)
 
@@ -129,7 +132,7 @@ func TestCanActReturnsFalseForStunnedCombatant(t *testing.T) {
 	now := time.Date(2026, 4, 3, 12, 0, 0, 0, time.UTC)
 	combatant := NewCombatant("c1", "Hero", CombatSideParty, 20, 15, 12)
 	combatant.AddEffect(StatusEffect{ID: "e1", Type: EffectStunned, Source: "spell", Duration: 1})
-	encounter := NewEncounter("encounter-1", []Combatant{combatant}, now)
+	encounter := NewEncounter("encounter-1", "session-1", []Combatant{combatant}, now)
 
 	canAct, err := encounter.CanAct("c1")
 	if err != nil {
@@ -144,7 +147,7 @@ func TestCanActReturnsFalseForDownCombatant(t *testing.T) {
 	now := time.Date(2026, 4, 3, 12, 0, 0, 0, time.UTC)
 	combatant := NewCombatant("c1", "Hero", CombatSideParty, 20, 15, 12)
 	combatant.Status = CombatStatusDown
-	encounter := NewEncounter("encounter-1", []Combatant{combatant}, now)
+	encounter := NewEncounter("encounter-1", "session-1", []Combatant{combatant}, now)
 
 	canAct, err := encounter.CanAct("c1")
 	if err != nil {

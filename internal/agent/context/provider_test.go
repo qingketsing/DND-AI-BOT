@@ -1,6 +1,7 @@
 package context
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -12,7 +13,7 @@ import (
 func TestBuildContextReturnsSessionMetadataAndRecentRecords(t *testing.T) {
 	provider, session := newTestProvider(t)
 
-	result, err := provider.BuildContext(session.ID, 2)
+	result, err := provider.BuildContext(context.Background(), session.ID, 2)
 	if err != nil {
 		t.Fatalf("expected build context to succeed, got %v", err)
 	}
@@ -31,14 +32,14 @@ func TestBuildContextReturnsNilLastRecordForEmptySession(t *testing.T) {
 	repository := memory.NewSessionRepository()
 	now := time.Date(2026, 4, 3, 12, 0, 0, 0, time.UTC)
 	session := model.NewSession("empty-session", model.ChannelWeb, now)
-	if err := repository.Save(session); err != nil {
+	if err := repository.Save(context.Background(), session); err != nil {
 		t.Fatalf("expected save to succeed, got %v", err)
 	}
 
 	store := basecontext.NewSessionContextStore(repository)
 	provider := NewProvider(store)
 
-	result, err := provider.BuildContext(session.ID, 5)
+	result, err := provider.BuildContext(context.Background(), session.ID, 5)
 	if err != nil {
 		t.Fatalf("expected build context to succeed, got %v", err)
 	}
@@ -50,7 +51,7 @@ func TestBuildContextReturnsNilLastRecordForEmptySession(t *testing.T) {
 func TestBuildContextReturnsLastRecordWhenHistoryExists(t *testing.T) {
 	provider, session := newTestProvider(t)
 
-	result, err := provider.BuildContext(session.ID, 5)
+	result, err := provider.BuildContext(context.Background(), session.ID, 5)
 	if err != nil {
 		t.Fatalf("expected build context to succeed, got %v", err)
 	}
@@ -72,7 +73,7 @@ func newTestProvider(t *testing.T) (*DefaultProvider, *model.Session) {
 	session.AppendUserMessage(model.User{ID: "user-1", Name: "Alice"}, "hello", now.Add(2*time.Minute))
 	session.AppendAgentMessage(model.User{ID: "agent-1", Name: "DM Agent"}, "reply", now.Add(3*time.Minute))
 
-	if err := repository.Save(session); err != nil {
+	if err := repository.Save(context.Background(), session); err != nil {
 		t.Fatalf("expected save to succeed, got %v", err)
 	}
 

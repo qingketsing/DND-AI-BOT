@@ -1,10 +1,14 @@
 package memory
 
-import "errors"
+import (
+	"errors"
+
+	"DND-AI-BOT/internal/repository"
+)
 
 var (
 	// ErrSessionNotFound 表示仓库中不存在目标会话。
-	ErrSessionNotFound = errors.New("session not found")
+	ErrSessionNotFound = repository.ErrSessionNotFound
 	// ErrNilSession 表示调用方传入了空会话。
 	ErrNilSession = errors.New("session is nil")
 	// ErrEmptySessionID 表示会话 ID 为空，无法保存或读取。

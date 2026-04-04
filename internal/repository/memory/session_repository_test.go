@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -14,11 +15,11 @@ func TestSessionRepositorySaveAndLoad(t *testing.T) {
 	session := model.NewSession("session-1", model.ChannelWeb, now)
 	session.AppendUserMessage(model.User{ID: "user-1", Name: "Alice"}, "hello", now.Add(time.Minute))
 
-	if err := repository.Save(session); err != nil {
+	if err := repository.Save(context.Background(), session); err != nil {
 		t.Fatalf("expected save to succeed, got error %v", err)
 	}
 
-	loaded, err := repository.Load("session-1")
+	loaded, err := repository.Load(context.Background(), "session-1")
 	if err != nil {
 		t.Fatalf("expected load to succeed, got error %v", err)
 	}
@@ -36,7 +37,7 @@ func TestSessionRepositorySaveAndLoad(t *testing.T) {
 func TestSessionRepositoryLoadMissingSession(t *testing.T) {
 	repository := NewSessionRepository()
 
-	_, err := repository.Load("missing")
+	_, err := repository.Load(context.Background(), "missing")
 	if !errors.Is(err, ErrSessionNotFound) {
 		t.Fatalf("expected ErrSessionNotFound, got %v", err)
 	}
@@ -48,17 +49,17 @@ func TestSessionRepositoryLoadReturnsIndependentSession(t *testing.T) {
 	session := model.NewSession("session-1", model.ChannelWeb, now)
 	session.AppendUserMessage(model.User{ID: "user-1", Name: "Alice"}, "hello", now.Add(time.Minute))
 
-	if err := repository.Save(session); err != nil {
+	if err := repository.Save(context.Background(), session); err != nil {
 		t.Fatalf("expected save to succeed, got error %v", err)
 	}
 
-	loaded, err := repository.Load("session-1")
+	loaded, err := repository.Load(context.Background(), "session-1")
 	if err != nil {
 		t.Fatalf("expected load to succeed, got error %v", err)
 	}
 	loaded.AppendSystemMessage("mutated", now.Add(2*time.Minute))
 
-	reloaded, err := repository.Load("session-1")
+	reloaded, err := repository.Load(context.Background(), "session-1")
 	if err != nil {
 		t.Fatalf("expected second load to succeed, got error %v", err)
 	}
@@ -72,16 +73,16 @@ func TestSessionRepositorySaveOverridesExistingSnapshot(t *testing.T) {
 	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
 	session := model.NewSession("session-1", model.ChannelWeb, now)
 
-	if err := repository.Save(session); err != nil {
+	if err := repository.Save(context.Background(), session); err != nil {
 		t.Fatalf("expected initial save to succeed, got error %v", err)
 	}
 
 	session.AppendAgentMessage(model.User{ID: "agent-1", Name: "DM Agent"}, "reply", now.Add(time.Minute))
-	if err := repository.Save(session); err != nil {
+	if err := repository.Save(context.Background(), session); err != nil {
 		t.Fatalf("expected second save to succeed, got error %v", err)
 	}
 
-	loaded, err := repository.Load("session-1")
+	loaded, err := repository.Load(context.Background(), "session-1")
 	if err != nil {
 		t.Fatalf("expected load to succeed, got error %v", err)
 	}

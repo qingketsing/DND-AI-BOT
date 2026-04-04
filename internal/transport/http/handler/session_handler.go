@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"DND-AI-BOT/internal/model"
-	"DND-AI-BOT/internal/repository/memory"
+	"DND-AI-BOT/internal/repository"
 	"DND-AI-BOT/internal/service"
 	"DND-AI-BOT/internal/transport/http/dto"
 )
@@ -36,7 +36,7 @@ func (h *SessionHandler) CreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session, err := h.service.CreateSession(model.Channel(strings.TrimSpace(request.Channel)), time.Now().UTC())
+	session, err := h.service.CreateSession(r.Context(), model.Channel(strings.TrimSpace(request.Channel)), time.Now().UTC())
 	if err != nil {
 		handleServiceError(w, err)
 		return
@@ -58,7 +58,7 @@ func (h *SessionHandler) GetSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session, err := h.service.GetSession(sessionID)
+	session, err := h.service.GetSession(r.Context(), sessionID)
 	if err != nil {
 		handleServiceError(w, err)
 		return
@@ -86,7 +86,7 @@ func (h *SessionHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session, err := h.service.SendMessage(service.SendMessageInput{
+	session, err := h.service.SendMessage(r.Context(), service.SendMessageInput{
 		SessionID: sessionID,
 		UserID:    request.UserID,
 		UserName:  request.UserName,
@@ -102,25 +102,28 @@ func (h *SessionHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 
 func handleServiceError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, service.ErrInvalidMessage), errors.Is(err, service.ErrInvalidChannel), errors.Is(err, memory.ErrEmptySessionID):
+	case errors.Is(err, service.ErrInvalidMessage), errors.Is(err, service.ErrInvalidChannel):
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
-	case errors.Is(err, memory.ErrSessionNotFound):
+	case errors.Is(err, repository.ErrSessionNotFound):
 		writeError(w, http.StatusNotFound, "session_not_found", err.Error())
 	default:
 		writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 	}
 }
 
+// writeJSON 统一写入 JSON 响应和状态码。
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+// writeError 将业务错误转换成统一的 HTTP 错误响应格式。
 func writeError(w http.ResponseWriter, status int, code string, message string) {
 	writeJSON(w, status, dto.NewErrorResponse(code, message))
 }
 
+// readSessionID 从 /sessions/{id} 或 /sessions/{id}/messages 路径中提取会话 ID。
 func readSessionID(path string) string {
 	trimmed := strings.Trim(path, "/")
 	parts := strings.Split(trimmed, "/")

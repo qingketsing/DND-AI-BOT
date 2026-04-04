@@ -1,6 +1,8 @@
 package context
 
 import (
+	"context"
+
 	basecontext "DND-AI-BOT/internal/context"
 	"DND-AI-BOT/internal/model"
 )
@@ -15,7 +17,7 @@ type AgentContext struct {
 
 // Provider 定义面向 Agent 的上下文组装接口。
 type Provider interface {
-	BuildContext(sessionID string, limit int) (AgentContext, error)
+	BuildContext(ctx context.Context, sessionID string, limit int) (AgentContext, error)
 }
 
 // DefaultProvider 基于通用会话上下文接口组装 AgentContext。
@@ -29,18 +31,18 @@ func NewProvider(store basecontext.SessionContextStore) *DefaultProvider {
 }
 
 // BuildContext 按 sessionID 组装 Agent 需要的最小上下文。
-func (p *DefaultProvider) BuildContext(sessionID string, limit int) (AgentContext, error) {
-	session, err := p.store.GetSession(sessionID)
+func (p *DefaultProvider) BuildContext(ctx context.Context, sessionID string, limit int) (AgentContext, error) {
+	session, err := p.store.GetSession(ctx, sessionID)
 	if err != nil {
 		return AgentContext{}, err
 	}
 
-	recentRecords, err := p.store.GetRecentRecords(sessionID, limit)
+	recentRecords, err := p.store.GetRecentRecords(ctx, sessionID, limit)
 	if err != nil {
 		return AgentContext{}, err
 	}
 
-	lastRecord, ok, err := p.store.GetLastRecord(sessionID)
+	lastRecord, ok, err := p.store.GetLastRecord(ctx, sessionID)
 	if err != nil {
 		return AgentContext{}, err
 	}

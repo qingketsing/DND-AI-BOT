@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"context"
 	"sync"
 
 	"DND-AI-BOT/internal/model"
@@ -20,7 +21,8 @@ func NewSessionRepository() *SessionRepository {
 }
 
 // Save 将会话保存为快照，已存在时直接覆盖。
-func (r *SessionRepository) Save(session *model.Session) error {
+func (r *SessionRepository) Save(ctx context.Context, session *model.Session) error {
+	_ = ctx
 	if session == nil {
 		return ErrNilSession
 	}
@@ -37,7 +39,8 @@ func (r *SessionRepository) Save(session *model.Session) error {
 }
 
 // Load 从仓库中读取会话，并恢复为独立的领域对象。
-func (r *SessionRepository) Load(id string) (*model.Session, error) {
+func (r *SessionRepository) Load(ctx context.Context, id string) (*model.Session, error) {
+	_ = ctx
 	if id == "" {
 		return nil, ErrEmptySessionID
 	}
