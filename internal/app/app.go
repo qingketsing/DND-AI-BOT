@@ -16,17 +16,30 @@ import (
 
 // App 负责承载应用初始化后的根 HTTP handler。
 type App struct {
-	Handler http.Handler
+	Handler          http.Handler
+	SessionService   *service.SessionService
+	GameStateService *service.GameStateService
+	EncounterService *service.EncounterService
 }
 
 // NewApp 完成仓库、服务、处理器和路由的装配。
 func NewApp(deps *bootstrap.RuntimeDependencies) *App {
 	sessionRepository := buildSessionRepository(deps)
+	gameStateRepository := buildGameStateRepository(deps)
+	encounterRepository := buildEncounterRepository(deps)
+
 	sessionService := service.NewSessionService(sessionRepository)
+	gameStateService := service.NewGameStateService(gameStateRepository)
+	encounterService := service.NewEncounterService(encounterRepository)
 	sessionHandler := httpHandler.NewSessionHandler(sessionService)
+	gameStateHandler := httpHandler.NewGameStateHandler(gameStateService)
+	encounterHandler := httpHandler.NewEncounterHandler(encounterService)
 
 	return &App{
-		Handler: router.NewRouter(sessionHandler),
+		Handler:          router.NewRouter(sessionHandler, gameStateHandler, encounterHandler),
+		SessionService:   sessionService,
+		GameStateService: gameStateService,
+		EncounterService: encounterService,
 	}
 }
 
@@ -38,6 +51,38 @@ func buildSessionRepository(deps *bootstrap.RuntimeDependencies) repository.Sess
 	return composite.NewCompositeSessionRepository(
 		sessionStore,
 		sessionCache,
+		composite.CachePolicy{
+			BaseTTL:     10 * time.Minute,
+			NotFoundTTL: 30 * time.Second,
+			TTLJitter:   time.Minute,
+		},
+	)
+}
+
+// buildGameStateRepository 根据运行时依赖组装真实的 GameState 持久化仓库。
+func buildGameStateRepository(deps *bootstrap.RuntimeDependencies) repository.GameStateRepository {
+	gameStateStore := postgresstore.NewPGGameStateStore(deps.DB)
+	gameStateCache := rediscache.NewRedisGameStateCache(deps.RedisClient)
+
+	return composite.NewCompositeGameStateRepository(
+		gameStateStore,
+		gameStateCache,
+		composite.CachePolicy{
+			BaseTTL:     10 * time.Minute,
+			NotFoundTTL: 30 * time.Second,
+			TTLJitter:   time.Minute,
+		},
+	)
+}
+
+// buildEncounterRepository 根据运行时依赖组装真实的 Encounter 持久化仓库。
+func buildEncounterRepository(deps *bootstrap.RuntimeDependencies) repository.EncounterRepository {
+	encounterStore := postgresstore.NewPGEncounterStore(deps.DB)
+	encounterCache := rediscache.NewRedisEncounterCache(deps.RedisClient)
+
+	return composite.NewCompositeEncounterRepository(
+		encounterStore,
+		encounterCache,
 		composite.CachePolicy{
 			BaseTTL:     10 * time.Minute,
 			NotFoundTTL: 30 * time.Second,

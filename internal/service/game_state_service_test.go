@@ -1,0 +1,238 @@
+package service
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"DND-AI-BOT/internal/game/state"
+	"DND-AI-BOT/internal/repository"
+)
+
+func TestCreateGameStateSavesInitialState(t *testing.T) {
+	repo := newFakeGameStateRepository()
+	service := NewGameStateService(repo)
+	ctx := context.Background()
+	now := time.Date(2026, 4, 5, 12, 0, 0, 0, time.UTC)
+
+	gameState, err := service.Create(ctx, CreateGameStateInput{
+		ID:        "state-1",
+		SessionID: "session-1",
+		Player: state.PlayerState{
+			Name:  "Alice",
+			Level: 1,
+			Gold:  10,
+			Stats: state.CharacterStats{STR: 10, DEX: 12, CON: 11, INT: 13, WIS: 14, CHA: 8},
+		},
+	}, now)
+	if err != nil {
+		t.Fatalf("expected create to succeed, got %v", err)
+	}
+	if gameState.ID != "state-1" {
+		t.Fatalf("expected game state id %q, got %q", "state-1", gameState.ID)
+	}
+	if repo.saved == nil || repo.saved.SessionID != "session-1" {
+		t.Fatal("expected repository to save created game state")
+	}
+}
+
+func TestGetGameStateReturnsStoredState(t *testing.T) {
+	repo := newFakeGameStateRepository()
+	service := NewGameStateService(repo)
+	ctx := context.Background()
+	now := time.Date(2026, 4, 5, 12, 0, 0, 0, time.UTC)
+	existing := state.NewGameState("state-1", "session-1", newTestPlayerState(), now)
+	repo.bySessionID["session-1"] = existing
+
+	gameState, err := service.GetBySessionID(ctx, "session-1")
+	if err != nil {
+		t.Fatalf("expected get to succeed, got %v", err)
+	}
+	if gameState.ID != "state-1" {
+		t.Fatalf("expected game state id %q, got %q", "state-1", gameState.ID)
+	}
+}
+
+func TestUpdateStatsReplacesPlayerStats(t *testing.T) {
+	repo := newFakeGameStateRepository()
+	service := NewGameStateService(repo)
+	ctx := context.Background()
+	now := time.Date(2026, 4, 5, 12, 0, 0, 0, time.UTC)
+	existing := state.NewGameState("state-1", "session-1", newTestPlayerState(), now)
+	repo.bySessionID["session-1"] = existing
+
+	updated, err := service.UpdateStats(ctx, UpdateStatsInput{
+		SessionID: "session-1",
+		Stats:     state.CharacterStats{STR: 15, DEX: 14, CON: 13, INT: 12, WIS: 11, CHA: 10},
+	}, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("expected update stats to succeed, got %v", err)
+	}
+	if updated.Player.Stats.STR != 15 || updated.Player.Stats.CHA != 10 {
+		t.Fatalf("expected stats to be replaced, got %+v", updated.Player.Stats)
+	}
+}
+
+func TestAddItemUpdatesInventory(t *testing.T) {
+	repo := newFakeGameStateRepository()
+	service := NewGameStateService(repo)
+	ctx := context.Background()
+	now := time.Date(2026, 4, 5, 12, 0, 0, 0, time.UTC)
+	existing := state.NewGameState("state-1", "session-1", newTestPlayerState(), now)
+	repo.bySessionID["session-1"] = existing
+
+	updated, err := service.AddItem(ctx, AddItemInput{
+		SessionID: "session-1",
+		Item:      state.InventoryItem{ID: "inv-1", ItemID: "potion", Name: "Potion", Quantity: 2},
+	}, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("expected add item to succeed, got %v", err)
+	}
+	if len(updated.Player.Inventory) != 1 || updated.Player.Inventory[0].Quantity != 2 {
+		t.Fatalf("expected inventory to contain new item, got %+v", updated.Player.Inventory)
+	}
+}
+
+func TestRemoveItemReturnsErrorWhenQuantityIsInsufficient(t *testing.T) {
+	repo := newFakeGameStateRepository()
+	service := NewGameStateService(repo)
+	ctx := context.Background()
+	now := time.Date(2026, 4, 5, 12, 0, 0, 0, time.UTC)
+	player := newTestPlayerState()
+	player.Inventory = []state.InventoryItem{{ID: "inv-1", ItemID: "potion", Name: "Potion", Quantity: 1}}
+	existing := state.NewGameState("state-1", "session-1", player, now)
+	repo.bySessionID["session-1"] = existing
+
+	_, err := service.RemoveItem(ctx, RemoveItemInput{
+		SessionID: "session-1",
+		ItemID:    "potion",
+		Quantity:  2,
+	}, now.Add(time.Minute))
+	if !errors.Is(err, ErrInsufficientItemQuantity) {
+		t.Fatalf("expected ErrInsufficientItemQuantity, got %v", err)
+	}
+}
+
+func TestAddGoldUpdatesGold(t *testing.T) {
+	repo := newFakeGameStateRepository()
+	service := NewGameStateService(repo)
+	ctx := context.Background()
+	now := time.Date(2026, 4, 5, 12, 0, 0, 0, time.UTC)
+	existing := state.NewGameState("state-1", "session-1", newTestPlayerState(), now)
+	repo.bySessionID["session-1"] = existing
+
+	updated, err := service.AddGold(ctx, AddGoldInput{SessionID: "session-1", Amount: 5}, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("expected add gold to succeed, got %v", err)
+	}
+	if updated.Player.Gold != 15 {
+		t.Fatalf("expected gold 15, got %d", updated.Player.Gold)
+	}
+}
+
+func TestSpendGoldReturnsErrorWhenGoldIsInsufficient(t *testing.T) {
+	repo := newFakeGameStateRepository()
+	service := NewGameStateService(repo)
+	ctx := context.Background()
+	now := time.Date(2026, 4, 5, 12, 0, 0, 0, time.UTC)
+	existing := state.NewGameState("state-1", "session-1", newTestPlayerState(), now)
+	repo.bySessionID["session-1"] = existing
+
+	_, err := service.SpendGold(ctx, SpendGoldInput{SessionID: "session-1", Amount: 99}, now.Add(time.Minute))
+	if !errors.Is(err, ErrInsufficientGold) {
+		t.Fatalf("expected ErrInsufficientGold, got %v", err)
+	}
+}
+
+func TestSetSceneUpdatesCurrentScene(t *testing.T) {
+	repo := newFakeGameStateRepository()
+	service := NewGameStateService(repo)
+	ctx := context.Background()
+	now := time.Date(2026, 4, 5, 12, 0, 0, 0, time.UTC)
+	existing := state.NewGameState("state-1", "session-1", newTestPlayerState(), now)
+	repo.bySessionID["session-1"] = existing
+
+	updated, err := service.SetScene(ctx, SetSceneInput{SessionID: "session-1", Scene: "forest"}, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("expected set scene to succeed, got %v", err)
+	}
+	if updated.CurrentScene != "forest" {
+		t.Fatalf("expected current scene %q, got %q", "forest", updated.CurrentScene)
+	}
+}
+
+func TestUpsertQuestAddsAndUpdatesQuest(t *testing.T) {
+	repo := newFakeGameStateRepository()
+	service := NewGameStateService(repo)
+	ctx := context.Background()
+	now := time.Date(2026, 4, 5, 12, 0, 0, 0, time.UTC)
+	existing := state.NewGameState("state-1", "session-1", newTestPlayerState(), now)
+	repo.bySessionID["session-1"] = existing
+
+	updated, err := service.UpsertQuest(ctx, UpsertQuestInput{
+		SessionID: "session-1",
+		Quest:     state.QuestProgress{ID: "quest-1", Title: "Find Key", Status: state.QuestStatusActive},
+	}, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("expected upsert quest to succeed, got %v", err)
+	}
+	if len(updated.Player.Quests) != 1 {
+		t.Fatalf("expected 1 quest, got %d", len(updated.Player.Quests))
+	}
+
+	updated, err = service.UpsertQuest(ctx, UpsertQuestInput{
+		SessionID: "session-1",
+		Quest:     state.QuestProgress{ID: "quest-1", Title: "Find Key", Status: state.QuestStatusCompleted},
+	}, now.Add(2*time.Minute))
+	if err != nil {
+		t.Fatalf("expected second upsert quest to succeed, got %v", err)
+	}
+	if updated.Player.Quests[0].Status != state.QuestStatusCompleted {
+		t.Fatalf("expected quest to be updated, got %q", updated.Player.Quests[0].Status)
+	}
+}
+
+func newTestPlayerState() state.PlayerState {
+	return state.PlayerState{
+		Name:  "Alice",
+		Level: 1,
+		Gold:  10,
+		Stats: state.CharacterStats{STR: 10, DEX: 12, CON: 11, INT: 13, WIS: 14, CHA: 8},
+	}
+}
+
+type fakeGameStateRepository struct {
+	bySessionID map[string]*state.GameState
+	saved       *state.GameState
+	saveErr     error
+	loadErr     error
+}
+
+func newFakeGameStateRepository() *fakeGameStateRepository {
+	return &fakeGameStateRepository{
+		bySessionID: make(map[string]*state.GameState),
+	}
+}
+
+func (f *fakeGameStateRepository) Save(ctx context.Context, gameState *state.GameState) error {
+	_ = ctx
+	if f.saveErr != nil {
+		return f.saveErr
+	}
+	f.saved = gameState
+	f.bySessionID[gameState.SessionID] = gameState
+	return nil
+}
+
+func (f *fakeGameStateRepository) LoadBySessionID(ctx context.Context, sessionID string) (*state.GameState, error) {
+	_ = ctx
+	if f.loadErr != nil {
+		return nil, f.loadErr
+	}
+	gameState, ok := f.bySessionID[sessionID]
+	if !ok {
+		return nil, repository.ErrGameStateNotFound
+	}
+	return gameState, nil
+}
