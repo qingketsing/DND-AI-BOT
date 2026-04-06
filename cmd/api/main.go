@@ -27,7 +27,10 @@ func main() {
 	defer deps.DB.Close()
 	defer deps.RedisClient.Close()
 
-	application := app.NewApp(deps)
+	application, err := app.NewApp(deps)
+	if err != nil {
+		log.Fatal(err)
+	}
 	_ = application
 
 	logger.Print("dependencies connected and repositories initialized, container is running")

@@ -20,7 +20,8 @@ var (
 
 // SessionService 负责编排会话创建、读取和消息收发流程。
 type SessionService struct {
-	repository repository.SessionRepository
+	repository   repository.SessionRepository
+	agentService *AgentService
 }
 
 // SendMessageInput 定义发送消息时需要的最小输入。
@@ -31,9 +32,17 @@ type SendMessageInput struct {
 	Content   string
 }
 
-// NewSessionService 创建会话服务。
-func NewSessionService(repository repository.SessionRepository) *SessionService {
-	return &SessionService{repository: repository}
+// NewSessionService 创建会话服务，并按需注入 Agent 回复能力。
+func NewSessionService(repository repository.SessionRepository, agentServices ...*AgentService) *SessionService {
+	var agentService *AgentService
+	if len(agentServices) > 0 {
+		agentService = agentServices[0]
+	}
+
+	return &SessionService{
+		repository:   repository,
+		agentService: agentService,
+	}
 }
 
 // CreateSession 创建并保存一个新会话。
@@ -55,7 +64,7 @@ func (s *SessionService) GetSession(ctx context.Context, id string) (*model.Sess
 	return s.repository.Load(ctx, id)
 }
 
-// SendMessage 将用户消息写入会话，并追加一条 mock agent 回复。
+// SendMessage 将用户消息写入会话，并通过 AgentService 或 mock 逻辑生成回复。
 func (s *SessionService) SendMessage(ctx context.Context, input SendMessageInput, now time.Time) (*model.Session, error) {
 	content := strings.TrimSpace(input.Content)
 	if content == "" || strings.TrimSpace(input.UserID) == "" || strings.TrimSpace(input.UserName) == "" {
@@ -72,7 +81,24 @@ func (s *SessionService) SendMessage(ctx context.Context, input SendMessageInput
 		Name: strings.TrimSpace(input.UserName),
 	}
 	session.AppendUserMessage(user, content, now)
-	session.AppendAgentMessage(model.User{ID: "agent", Name: "DM Agent"}, buildMockReply(content), now)
+
+	if err := s.repository.Save(ctx, session); err != nil {
+		return nil, err
+	}
+
+	reply := buildMockReply(content)
+	if s.agentService != nil {
+		result, err := s.agentService.Reply(ctx, AgentReplyInput{
+			SessionID:   session.ID,
+			UserMessage: content,
+		})
+		if err != nil {
+			return nil, err
+		}
+		reply = result.Reply
+	}
+
+	session.AppendAgentMessage(model.User{ID: "agent", Name: "DM Agent"}, reply, now)
 
 	if err := s.repository.Save(ctx, session); err != nil {
 		return nil, err

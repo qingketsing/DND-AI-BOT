@@ -1,10 +1,16 @@
 package app
 
 import (
+	"context"
+	"log"
 	"net/http"
 	"time"
 
+	agentcontext "DND-AI-BOT/internal/agent/context"
+	agentruntime "DND-AI-BOT/internal/agent/runtime"
 	"DND-AI-BOT/internal/bootstrap"
+	basecontext "DND-AI-BOT/internal/context"
+	"DND-AI-BOT/internal/game/rules"
 	"DND-AI-BOT/internal/repository"
 	"DND-AI-BOT/internal/repository/composite"
 	postgresstore "DND-AI-BOT/internal/repository/postgres"
@@ -17,30 +23,67 @@ import (
 // App 负责承载应用初始化后的根 HTTP handler。
 type App struct {
 	Handler          http.Handler
+	AgentService     *service.AgentService
 	SessionService   *service.SessionService
 	GameStateService *service.GameStateService
 	EncounterService *service.EncounterService
 }
 
 // NewApp 完成仓库、服务、处理器和路由的装配。
-func NewApp(deps *bootstrap.RuntimeDependencies) *App {
+func NewApp(deps *bootstrap.RuntimeDependencies) (*App, error) {
 	sessionRepository := buildSessionRepository(deps)
 	gameStateRepository := buildGameStateRepository(deps)
 	encounterRepository := buildEncounterRepository(deps)
 
-	sessionService := service.NewSessionService(sessionRepository)
 	gameStateService := service.NewGameStateService(gameStateRepository)
 	encounterService := service.NewEncounterService(encounterRepository)
+	contextStore := basecontext.NewSessionContextStore(sessionRepository)
+	contextProvider := agentcontext.NewProvider(contextStore)
+	agentRuntime, err := bootstrap.BuildAgentRuntime(bootstrap.AgentRuntimeInput{
+		ContextProvider:  contextProvider,
+		GameStateService: gameStateService,
+		EncounterService: encounterService,
+		RuleEngine:       rules.NewDefaultRuleEngine(nil),
+	})
+	if err != nil {
+		return nil, err
+	}
+	bootstrap.LogModelAdapterReady(log.Default(), agentRuntime.Config)
+
+	agentService := service.NewAgentService(func(ctx context.Context, input service.AgentReplyInput) (service.AgentReplyResult, error) {
+		output, err := agentRuntime.Runtime.Run(ctx, agentruntime.RuntimeInput{
+			SessionID:    input.SessionID,
+			SystemPrompt: input.SystemPrompt,
+			UserMessage:  input.UserMessage,
+			MaxSteps:     input.MaxSteps,
+			ContextLimit: input.ContextLimit,
+		})
+		if err != nil {
+			return service.AgentReplyResult{}, err
+		}
+
+		steps := make([]service.AgentStep, 0, len(output.Steps))
+		for _, step := range output.Steps {
+			steps = append(steps, service.AgentStep{ToolName: step.ActionName})
+		}
+
+		return service.AgentReplyResult{
+			Reply: output.Reply,
+			Steps: steps,
+		}, nil
+	}, log.Default())
+	sessionService := service.NewSessionService(sessionRepository, agentService)
 	sessionHandler := httpHandler.NewSessionHandler(sessionService)
 	gameStateHandler := httpHandler.NewGameStateHandler(gameStateService)
 	encounterHandler := httpHandler.NewEncounterHandler(encounterService)
 
 	return &App{
 		Handler:          router.NewRouter(sessionHandler, gameStateHandler, encounterHandler),
+		AgentService:     agentService,
 		SessionService:   sessionService,
 		GameStateService: gameStateService,
 		EncounterService: encounterService,
-	}
+	}, nil
 }
 
 // buildSessionRepository 根据运行时依赖组装真实的 Session 持久化仓库。

@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"DND-AI-BOT/internal/model"
-	"DND-AI-BOT/internal/repository/memory"
+	"DND-AI-BOT/internal/repository"
 )
 
 // SessionContextStore 定义通用会话上下文读取接口。
@@ -17,11 +17,11 @@ type SessionContextStore interface {
 
 // DefaultSessionContextStore 基于会话仓库实现通用上下文读取。
 type DefaultSessionContextStore struct {
-	repository *memory.SessionRepository
+	repository repository.SessionRepository
 }
 
 // NewSessionContextStore 创建默认会话上下文读取实现。
-func NewSessionContextStore(repository *memory.SessionRepository) *DefaultSessionContextStore {
+func NewSessionContextStore(repository repository.SessionRepository) *DefaultSessionContextStore {
 	return &DefaultSessionContextStore{repository: repository}
 }
 

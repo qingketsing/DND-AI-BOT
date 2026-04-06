@@ -74,6 +74,38 @@ func TestSendMessageAppendsUserAndMockReply(t *testing.T) {
 	}
 }
 
+func TestSendMessageUsesAgentServiceReplyWhenConfigured(t *testing.T) {
+	repository := memory.NewSessionRepository()
+	agentService := NewAgentService(func(ctx context.Context, input AgentReplyInput) (AgentReplyResult, error) {
+		_ = ctx
+		_ = input
+		return AgentReplyResult{
+			Reply: "你当前背包里有一瓶治疗药水。",
+		}, nil
+	}, nil)
+	service := NewSessionService(repository, agentService)
+	ctx := context.Background()
+	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
+	session, err := service.CreateSession(ctx, model.ChannelWeb, now)
+	if err != nil {
+		t.Fatalf("expected create session to succeed, got %v", err)
+	}
+
+	updated, err := service.SendMessage(ctx, SendMessageInput{
+		SessionID: session.ID,
+		UserID:    "user-1",
+		UserName:  "Alice",
+		Content:   "我的背包里有什么？",
+	}, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("expected send message to succeed, got %v", err)
+	}
+
+	if got := updated.History[1].Message.Content; got != "你当前背包里有一瓶治疗药水。" {
+		t.Fatalf("expected agent runtime reply, got %q", got)
+	}
+}
+
 func TestSendMessageRejectsEmptyContent(t *testing.T) {
 	service := NewSessionService(memory.NewSessionRepository())
 	ctx := context.Background()
