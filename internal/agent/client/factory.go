@@ -35,7 +35,7 @@ func NewModelAdapter(config Config) (ModelAdapter, error) {
 
 	switch config.Provider {
 	case ProviderMock:
-		return mock.NewAdapter(nil), nil
+		return mock.NewEchoAdapter(), nil
 	case ProviderDeepSeek:
 		return deepseek.NewAdapter(config.Model, config.BaseURL, config.APIKey, timeoutFromSeconds(config.TimeoutSeconds))
 	case ProviderOpenAI:

@@ -1,13 +1,19 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"log"
+	"net/http"
+	"os"
 
 	"DND-AI-BOT/internal/app"
 	"DND-AI-BOT/internal/bootstrap"
 )
 
-// main 负责初始化运行时依赖，并在容器内保持进程存活以便观察连接状态。
+const defaultHTTPAddr = ":8080"
+
+// main 负责初始化依赖、执行 migration 并启动 HTTP 服务。
 func main() {
 	logger := log.Default()
 
@@ -27,12 +33,26 @@ func main() {
 	defer deps.DB.Close()
 	defer deps.RedisClient.Close()
 
+	if err := bootstrap.RunEmbeddedMigrations(context.Background(), deps.DB); err != nil {
+		log.Fatal(err)
+	}
+
 	application, err := app.NewApp(deps)
 	if err != nil {
 		log.Fatal(err)
 	}
-	_ = application
 
-	logger.Print("dependencies connected and repositories initialized, container is running")
-	select {}
+	addr := loadHTTPAddrFromEnv()
+	logger.Printf("http server listening on %s", addr)
+
+	if err := http.ListenAndServe(addr, application.Handler); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Fatal(err)
+	}
+}
+
+func loadHTTPAddrFromEnv() string {
+	if addr := os.Getenv("HTTP_ADDR"); addr != "" {
+		return addr
+	}
+	return defaultHTTPAddr
 }

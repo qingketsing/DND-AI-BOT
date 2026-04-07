@@ -14,5 +14,6 @@ FROM debian:bookworm-slim
 WORKDIR /app
 
 COPY --from=builder /dnd-api /usr/local/bin/dnd-api
+COPY migrations ./migrations
 
 CMD ["dnd-api"]

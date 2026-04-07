@@ -34,10 +34,15 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: dnd-app
+    env_file:
+      - .env
     environment:
       POSTGRES_DSN: postgres://dnd:dndpass@postgres:5432/dndbot?sslmode=disable
       POSTGRES_ADDR: postgres:5432
       REDIS_ADDR: redis:6379
+      HTTP_ADDR: :8080
+    ports:
+      - "8080:8080"
     depends_on:
       postgres:
         condition: service_healthy

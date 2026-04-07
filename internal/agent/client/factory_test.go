@@ -21,12 +21,15 @@ func TestNewModelAdapterReturnsMockAdapter(t *testing.T) {
 		t.Fatal("expected adapter to implement ModelAdapter")
 	}
 
-	_, err = adapter.Run(t.Context(), runtime.ModelInput{
+	output, err := adapter.Run(t.Context(), runtime.ModelInput{
 		SessionID:   "session-1",
 		UserMessage: "hello",
 	})
-	if err == nil {
-		t.Fatal("expected empty mock adapter to report no more outputs")
+	if err != nil {
+		t.Fatalf("expected mock adapter run to succeed, got %v", err)
+	}
+	if output.Reply != "mock reply: hello" {
+		t.Fatalf("expected mock adapter reply, got %q", output.Reply)
 	}
 }
 
