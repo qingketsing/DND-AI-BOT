@@ -6,6 +6,7 @@ import (
 	agentcontext "DND-AI-BOT/internal/agent/context"
 	"DND-AI-BOT/internal/agent/tools"
 	"DND-AI-BOT/internal/game/rules"
+	retrievalsearch "DND-AI-BOT/internal/retrieval/search"
 	"DND-AI-BOT/internal/service"
 )
 
@@ -26,6 +27,8 @@ type ToolRuntimeInput struct {
 	GameStateService *service.GameStateService
 	EncounterService *service.EncounterService
 	RuleEngine       rules.RuleEngine
+	RuleSearcher     retrievalsearch.Searcher
+	LoreSearcher     retrievalsearch.Searcher
 }
 
 // BuildToolRuntime 根据现有业务依赖构建默认工具注册表与执行器。
@@ -59,5 +62,7 @@ func buildRegisterDependencies(input ToolRuntimeInput) tools.RegisterDependencie
 		GameStateService: input.GameStateService,
 		EncounterService: input.EncounterService,
 		RuleEngine:       input.RuleEngine,
+		RuleSearcher:     input.RuleSearcher,
+		LoreSearcher:     input.LoreSearcher,
 	}
 }

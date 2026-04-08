@@ -78,7 +78,7 @@ func TestBuildAgentRuntimeBuildsRuntimeWithRegisteredTools(t *testing.T) {
 		names[spec.Name] = struct{}{}
 	}
 
-	for _, required := range []string{"get_game_state", "apply_damage", "skill_check"} {
+	for _, required := range []string{"get_game_state", "apply_damage", "skill_check", "search_rules", "search_lore"} {
 		if _, ok := names[required]; !ok {
 			t.Fatalf("expected tool %q to be registered in runtime", required)
 		}

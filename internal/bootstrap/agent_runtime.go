@@ -8,6 +8,7 @@ import (
 	agentruntime "DND-AI-BOT/internal/agent/runtime"
 	"DND-AI-BOT/internal/agent/tools"
 	"DND-AI-BOT/internal/game/rules"
+	retrievalsearch "DND-AI-BOT/internal/retrieval/search"
 	"DND-AI-BOT/internal/service"
 )
 
@@ -31,6 +32,8 @@ type AgentRuntimeInput struct {
 	GameStateService *service.GameStateService
 	EncounterService *service.EncounterService
 	RuleEngine       rules.RuleEngine
+	RuleSearcher     retrievalsearch.Searcher
+	LoreSearcher     retrievalsearch.Searcher
 }
 
 // BuildAgentRuntime 将模型层、工具层和 Runtime 组装为一套可运行的 Agent 内核。
@@ -44,7 +47,22 @@ func BuildAgentRuntime(input AgentRuntimeInput) (*AgentRuntimeDependencies, erro
 		return nil, err
 	}
 
-	toolRuntime, err := BuildToolRuntime(buildToolRuntimeInput(input))
+	ruleSearcher := input.RuleSearcher
+	loreSearcher := input.LoreSearcher
+	if ruleSearcher == nil || loreSearcher == nil {
+		searchRuntime, err := BuildSearchRuntime()
+		if err != nil {
+			return nil, err
+		}
+		if ruleSearcher == nil {
+			ruleSearcher = searchRuntime.RuleSearcher
+		}
+		if loreSearcher == nil {
+			loreSearcher = searchRuntime.LoreSearcher
+		}
+	}
+
+	toolRuntime, err := BuildToolRuntime(buildToolRuntimeInput(input, ruleSearcher, loreSearcher))
 	if err != nil {
 		return nil, err
 	}
@@ -66,11 +84,17 @@ func validateAgentRuntimeInput(input AgentRuntimeInput) error {
 	return nil
 }
 
-func buildToolRuntimeInput(input AgentRuntimeInput) ToolRuntimeInput {
+func buildToolRuntimeInput(
+	input AgentRuntimeInput,
+	ruleSearcher retrievalsearch.Searcher,
+	loreSearcher retrievalsearch.Searcher,
+) ToolRuntimeInput {
 	return ToolRuntimeInput{
 		ContextProvider:  input.ContextProvider,
 		GameStateService: input.GameStateService,
 		EncounterService: input.EncounterService,
 		RuleEngine:       input.RuleEngine,
+		RuleSearcher:     ruleSearcher,
+		LoreSearcher:     loreSearcher,
 	}
 }

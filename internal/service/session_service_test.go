@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	agentprompt "DND-AI-BOT/internal/agent/prompt"
 	"DND-AI-BOT/internal/model"
 	"DND-AI-BOT/internal/repository"
 	"DND-AI-BOT/internal/repository/memory"
@@ -103,6 +104,37 @@ func TestSendMessageUsesAgentServiceReplyWhenConfigured(t *testing.T) {
 
 	if got := updated.History[1].Message.Content; got != "你当前背包里有一瓶治疗药水。" {
 		t.Fatalf("expected agent runtime reply, got %q", got)
+	}
+}
+
+func TestSendMessagePassesDefaultSystemPromptToAgent(t *testing.T) {
+	repository := memory.NewSessionRepository()
+	var captured AgentReplyInput
+	agentService := NewAgentService(func(ctx context.Context, input AgentReplyInput) (AgentReplyResult, error) {
+		_ = ctx
+		captured = input
+		return AgentReplyResult{Reply: "规则裁定完成。"}, nil
+	}, nil)
+	service := NewSessionService(repository, agentService)
+	ctx := context.Background()
+	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
+	session, err := service.CreateSession(ctx, model.ChannelWeb, now)
+	if err != nil {
+		t.Fatalf("expected create session to succeed, got %v", err)
+	}
+
+	_, err = service.SendMessage(ctx, SendMessageInput{
+		SessionID: session.ID,
+		UserID:    "user-1",
+		UserName:  "Alice",
+		Content:   "法师怎么准备法术？",
+	}, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("expected send message to succeed, got %v", err)
+	}
+
+	if captured.SystemPrompt != agentprompt.DefaultSystemPrompt {
+		t.Fatalf("expected default system prompt to be passed to agent, got %q", captured.SystemPrompt)
 	}
 }
 

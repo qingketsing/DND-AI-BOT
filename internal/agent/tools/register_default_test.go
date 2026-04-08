@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	agentcontext "DND-AI-BOT/internal/agent/context"
+	retrievalsearch "DND-AI-BOT/internal/retrieval/search"
 )
 
 func TestRegisterDefaultToolsRegistersAllPlannedTools(t *testing.T) {
@@ -14,14 +15,16 @@ func TestRegisterDefaultToolsRegistersAllPlannedTools(t *testing.T) {
 		GameStateService: &fakeGameStateToolService{result: newToolGameState()},
 		EncounterService: &fakeEncounterToolService{result: newToolEncounter()},
 		RuleEngine:       &fakeRuleEngine{},
+		RuleSearcher:     &fakeKnowledgeSearcher{},
+		LoreSearcher:     &fakeKnowledgeSearcher{},
 	})
 	if err != nil {
 		t.Fatalf("expected register default tools to succeed, got %v", err)
 	}
 
 	specs := registry.List()
-	if len(specs) != 19 {
-		t.Fatalf("expected 19 registered tools, got %d", len(specs))
+	if len(specs) != 21 {
+		t.Fatalf("expected 21 registered tools, got %d", len(specs))
 	}
 
 	expected := []string{
@@ -39,6 +42,8 @@ func TestRegisterDefaultToolsRegistersAllPlannedTools(t *testing.T) {
 		"remove_effect",
 		"remove_item",
 		"roll_dice",
+		"search_lore",
+		"search_rules",
 		"set_scene",
 		"skill_check",
 		"spend_gold",
@@ -56,3 +61,4 @@ var _ agentcontext.Provider = (*fakeContextProvider)(nil)
 var _ gameStateToolService = (*fakeGameStateToolService)(nil)
 var _ encounterToolService = (*fakeEncounterToolService)(nil)
 var _ ruleToolEngine = (*fakeRuleEngine)(nil)
+var _ retrievalsearch.Searcher = (*fakeKnowledgeSearcher)(nil)

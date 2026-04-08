@@ -39,11 +39,17 @@ func NewApp(deps *bootstrap.RuntimeDependencies) (*App, error) {
 	encounterService := service.NewEncounterService(encounterRepository)
 	contextStore := basecontext.NewSessionContextStore(sessionRepository)
 	contextProvider := agentcontext.NewProvider(contextStore)
+	searchRuntime, err := bootstrap.BuildSearchRuntime()
+	if err != nil {
+		return nil, err
+	}
 	agentRuntime, err := bootstrap.BuildAgentRuntime(bootstrap.AgentRuntimeInput{
 		ContextProvider:  contextProvider,
 		GameStateService: gameStateService,
 		EncounterService: encounterService,
 		RuleEngine:       rules.NewDefaultRuleEngine(nil),
+		RuleSearcher:     searchRuntime.RuleSearcher,
+		LoreSearcher:     searchRuntime.LoreSearcher,
 	})
 	if err != nil {
 		return nil, err

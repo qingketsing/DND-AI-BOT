@@ -13,6 +13,11 @@ dist/
 .cache/
 coverage.out
 
+# Python 本地环境与缓存
+.venv/
+__pycache__/
+*.py[cod]
+
 # IDE 和编辑器文件
 .idea/
 .vscode/
@@ -23,3 +28,12 @@ coverage.out
 .env
 .env.local
 TODO
+
+# 规则书提取与拆分生成物
+data/raw/Rules/*_extracted.txt
+data/raw/Rules/*_cleaned.txt
+data/raw/Rules/split/
+
+# RAG 生成数据
+data/normalized/
+data/chunks/

@@ -2,6 +2,7 @@ package tools
 
 import (
 	agentcontext "DND-AI-BOT/internal/agent/context"
+	retrievalsearch "DND-AI-BOT/internal/retrieval/search"
 )
 
 // RegisterDependencies 定义默认工具注册所需的全部依赖。
@@ -10,6 +11,8 @@ type RegisterDependencies struct {
 	GameStateService gameStateToolService
 	EncounterService encounterToolService
 	RuleEngine       ruleToolEngine
+	RuleSearcher     retrievalsearch.Searcher
+	LoreSearcher     retrievalsearch.Searcher
 }
 
 // RegisterDefaultTools 将当前默认工具集合一次性注册到注册表中。
@@ -34,6 +37,12 @@ func RegisterDefaultTools(registry Registry, deps RegisterDependencies) error {
 		NewRollDiceTool(deps.RuleEngine),
 		NewAbilityCheckTool(deps.RuleEngine),
 		NewSkillCheckTool(deps.RuleEngine),
+	}
+	if deps.RuleSearcher != nil {
+		tools = append(tools, NewSearchRulesTool(deps.RuleSearcher))
+	}
+	if deps.LoreSearcher != nil {
+		tools = append(tools, NewSearchLoreTool(deps.LoreSearcher))
 	}
 
 	for _, tool := range tools {

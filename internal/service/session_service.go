@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	agentprompt "DND-AI-BOT/internal/agent/prompt"
 	"DND-AI-BOT/internal/model"
 	"DND-AI-BOT/internal/repository"
 )
@@ -89,8 +90,9 @@ func (s *SessionService) SendMessage(ctx context.Context, input SendMessageInput
 	reply := buildMockReply(content)
 	if s.agentService != nil {
 		result, err := s.agentService.Reply(ctx, AgentReplyInput{
-			SessionID:   session.ID,
-			UserMessage: content,
+			SessionID:    session.ID,
+			SystemPrompt: agentprompt.DefaultSystemPrompt,
+			UserMessage:  content,
 		})
 		if err != nil {
 			return nil, err

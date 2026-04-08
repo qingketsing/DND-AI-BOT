@@ -19,6 +19,12 @@ import (
 
 func TestBuildToolRuntimeBuildsRegistryAndExecutor(t *testing.T) {
 	deps := newToolRuntimeInput(t)
+	searchDeps, err := BuildSearchRuntime()
+	if err != nil {
+		t.Fatalf("expected search runtime build to succeed, got %v", err)
+	}
+	deps.RuleSearcher = searchDeps.RuleSearcher
+	deps.LoreSearcher = searchDeps.LoreSearcher
 
 	runtimeDeps, err := BuildToolRuntime(deps)
 	if err != nil {
@@ -37,6 +43,12 @@ func TestBuildToolRuntimeBuildsRegistryAndExecutor(t *testing.T) {
 
 func TestBuildToolRuntimeRegistersDefaultTools(t *testing.T) {
 	deps := newToolRuntimeInput(t)
+	searchDeps, err := BuildSearchRuntime()
+	if err != nil {
+		t.Fatalf("expected search runtime build to succeed, got %v", err)
+	}
+	deps.RuleSearcher = searchDeps.RuleSearcher
+	deps.LoreSearcher = searchDeps.LoreSearcher
 
 	runtimeDeps, err := BuildToolRuntime(deps)
 	if err != nil {
@@ -53,7 +65,7 @@ func TestBuildToolRuntimeRegistersDefaultTools(t *testing.T) {
 		names[spec.Name] = struct{}{}
 	}
 
-	for _, required := range []string{"get_game_state", "apply_damage", "skill_check"} {
+	for _, required := range []string{"get_game_state", "apply_damage", "skill_check", "search_rules", "search_lore"} {
 		if _, ok := names[required]; !ok {
 			t.Fatalf("expected tool %q to be registered", required)
 		}
@@ -70,6 +82,12 @@ func TestBuildToolRuntimeRejectsNilDependencies(t *testing.T) {
 func TestBuildToolRuntimeExecutorCanExecuteRegisteredTool(t *testing.T) {
 	now := time.Now().UTC()
 	deps := newToolRuntimeInput(t)
+	searchDeps, err := BuildSearchRuntime()
+	if err != nil {
+		t.Fatalf("expected search runtime build to succeed, got %v", err)
+	}
+	deps.RuleSearcher = searchDeps.RuleSearcher
+	deps.LoreSearcher = searchDeps.LoreSearcher
 	runtimeDeps, err := BuildToolRuntime(deps)
 	if err != nil {
 		t.Fatalf("expected tool runtime build to succeed, got %v", err)
