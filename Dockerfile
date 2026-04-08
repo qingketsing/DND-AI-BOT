@@ -15,5 +15,6 @@ WORKDIR /app
 
 COPY --from=builder /dnd-api /usr/local/bin/dnd-api
 COPY migrations ./migrations
+COPY data ./data
 
 CMD ["dnd-api"]
