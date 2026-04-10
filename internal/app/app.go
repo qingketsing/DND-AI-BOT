@@ -17,6 +17,7 @@ import (
 	rediscache "DND-AI-BOT/internal/repository/redis"
 	"DND-AI-BOT/internal/service"
 	httpHandler "DND-AI-BOT/internal/transport/http/handler"
+	httpMiddleware "DND-AI-BOT/internal/transport/http/middleware"
 	"DND-AI-BOT/internal/transport/http/router"
 )
 
@@ -24,6 +25,7 @@ import (
 type App struct {
 	Handler          http.Handler
 	AgentService     *service.AgentService
+	AuthService      *service.AuthService
 	SessionService   *service.SessionService
 	GameStateService *service.GameStateService
 	EncounterService *service.EncounterService
@@ -78,14 +80,26 @@ func NewApp(deps *bootstrap.RuntimeDependencies) (*App, error) {
 			Steps: steps,
 		}, nil
 	}, log.Default())
+	authService := service.NewAuthService(
+		postgresstore.NewPGUserStore(deps.DB),
+		postgresstore.NewPGAuthSessionStore(deps.DB),
+		rediscache.NewRedisAuthSessionCache(deps.RedisClient),
+		service.BcryptPasswordManager{},
+		service.SHA256TokenManager{},
+		service.PrefixIDGenerator{},
+		service.SystemClock{},
+	)
 	sessionService := service.NewSessionService(sessionRepository, agentService)
+	authHandler := httpHandler.NewAuthHandler(authService)
+	authMiddleware := httpMiddleware.NewAuthMiddleware(authService)
 	sessionHandler := httpHandler.NewSessionHandler(sessionService)
 	gameStateHandler := httpHandler.NewGameStateHandler(gameStateService)
 	encounterHandler := httpHandler.NewEncounterHandler(encounterService)
 
 	return &App{
-		Handler:          router.NewRouter(sessionHandler, gameStateHandler, encounterHandler),
+		Handler:          router.NewRouter(sessionHandler, gameStateHandler, encounterHandler, authHandler, authMiddleware),
 		AgentService:     agentService,
+		AuthService:      authService,
 		SessionService:   sessionService,
 		GameStateService: gameStateService,
 		EncounterService: encounterService,

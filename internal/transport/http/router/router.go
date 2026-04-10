@@ -12,8 +12,15 @@ func NewRouter(
 	sessionHandler *handler.SessionHandler,
 	gameStateHandler *handler.GameStateHandler,
 	encounterHandler *handler.EncounterHandler,
+	authHandler *handler.AuthHandler,
+	authMiddleware func(http.Handler) http.Handler,
 ) http.Handler {
 	mux := http.NewServeMux()
+
+	mux.HandleFunc("/auth/register", authHandler.Register)
+	mux.HandleFunc("/auth/login", authHandler.Login)
+	mux.HandleFunc("/auth/logout", authHandler.Logout)
+	mux.Handle("/auth/me", authMiddleware(http.HandlerFunc(authHandler.Me)))
 
 	mux.HandleFunc("/sessions", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
