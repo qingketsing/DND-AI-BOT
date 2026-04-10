@@ -13,7 +13,7 @@ func TestSessionRepositorySaveAndLoad(t *testing.T) {
 	repository := NewSessionRepository()
 	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
 	session := model.NewSession("session-1", model.ChannelWeb, now)
-	session.AppendUserMessage(model.User{ID: "user-1", Name: "Alice"}, "hello", now.Add(time.Minute))
+	session.AppendUserMessage(model.SessionUser{ID: "user-1", Name: "Alice"}, "hello", now.Add(time.Minute))
 
 	if err := repository.Save(context.Background(), session); err != nil {
 		t.Fatalf("expected save to succeed, got error %v", err)
@@ -47,7 +47,7 @@ func TestSessionRepositoryLoadReturnsIndependentSession(t *testing.T) {
 	repository := NewSessionRepository()
 	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
 	session := model.NewSession("session-1", model.ChannelWeb, now)
-	session.AppendUserMessage(model.User{ID: "user-1", Name: "Alice"}, "hello", now.Add(time.Minute))
+	session.AppendUserMessage(model.SessionUser{ID: "user-1", Name: "Alice"}, "hello", now.Add(time.Minute))
 
 	if err := repository.Save(context.Background(), session); err != nil {
 		t.Fatalf("expected save to succeed, got error %v", err)
@@ -77,7 +77,7 @@ func TestSessionRepositorySaveOverridesExistingSnapshot(t *testing.T) {
 		t.Fatalf("expected initial save to succeed, got error %v", err)
 	}
 
-	session.AppendAgentMessage(model.User{ID: "agent-1", Name: "DM Agent"}, "reply", now.Add(time.Minute))
+	session.AppendAgentMessage(model.SessionUser{ID: "agent-1", Name: "DM Agent"}, "reply", now.Add(time.Minute))
 	if err := repository.Save(context.Background(), session); err != nil {
 		t.Fatalf("expected second save to succeed, got error %v", err)
 	}

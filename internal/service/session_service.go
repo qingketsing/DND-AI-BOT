@@ -77,7 +77,7 @@ func (s *SessionService) SendMessage(ctx context.Context, input SendMessageInput
 		return nil, err
 	}
 
-	user := model.User{
+	user := model.SessionUser{
 		ID:   strings.TrimSpace(input.UserID),
 		Name: strings.TrimSpace(input.UserName),
 	}
@@ -100,7 +100,7 @@ func (s *SessionService) SendMessage(ctx context.Context, input SendMessageInput
 		reply = result.Reply
 	}
 
-	session.AppendAgentMessage(model.User{ID: "agent", Name: "DM Agent"}, reply, now)
+	session.AppendAgentMessage(model.SessionUser{ID: "agent", Name: "DM Agent"}, reply, now)
 
 	if err := s.repository.Save(ctx, session); err != nil {
 		return nil, err

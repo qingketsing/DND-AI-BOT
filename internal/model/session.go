@@ -29,15 +29,15 @@ type Session struct {
 // 历史记录包含用户体，消息体，序号（防止由于时间戳导致的和系统输出的一些信息顺序错乱），来源
 type HistoryRecord struct {
 	ID        string        `json:"id"`
-	User      User          `json:"user"`
+	User      SessionUser   `json:"user"`
 	Message   Message       `json:"message"`
 	Sequence  int64         `json:"sequence"`
 	Source    MessageSource `json:"source"`
 	CreatedAt time.Time     `json:"created_at"`
 }
 
-// 这里的用户只是快照保存使用的用户体
-type User struct {
+// SessionUser is the lightweight user snapshot stored in session history.
+type SessionUser struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 }
@@ -47,7 +47,7 @@ type Message struct {
 	Content string `json:"content"`
 }
 
-var systemUser = User{
+var systemUser = SessionUser{
 	ID:   "system",
 	Name: "system",
 }
@@ -64,14 +64,14 @@ func NewSession(id string, channel Channel, now time.Time) *Session {
 }
 
 // 在会话历史记录中加入新的用户消息记录
-func (s *Session) AppendUserMessage(user User, content string, now time.Time) HistoryRecord {
+func (s *Session) AppendUserMessage(user SessionUser, content string, now time.Time) HistoryRecord {
 	record := s.newRecord(MessageSourceUser, user, content, now)
 	s.appendRecord(record)
 	return record
 }
 
 // 在会话历史记录中加入新的Agent消息记录
-func (s *Session) AppendAgentMessage(user User, content string, now time.Time) HistoryRecord {
+func (s *Session) AppendAgentMessage(user SessionUser, content string, now time.Time) HistoryRecord {
 	record := s.newRecord(MessageSourceAgent, user, content, now)
 	s.appendRecord(record)
 	return record
@@ -110,7 +110,7 @@ func (s *Session) appendRecord(record HistoryRecord) {
 	s.UpdatedAt = record.CreatedAt
 }
 
-func (s *Session) newRecord(source MessageSource, user User, content string, now time.Time) HistoryRecord {
+func (s *Session) newRecord(source MessageSource, user SessionUser, content string, now time.Time) HistoryRecord {
 	return HistoryRecord{
 		ID:        user.ID,
 		User:      user,

@@ -27,8 +27,8 @@ func TestIntegrationSessionRepositoryPersistsToPGAndBackfillsRedis(t *testing.T)
 	now := time.Date(2026, 4, 4, 12, 0, 0, 0, time.UTC)
 	session := model.NewSession("session-int-1", model.ChannelWeb, now)
 	session.AppendSystemMessage("welcome", now.Add(time.Minute))
-	session.AppendUserMessage(model.User{ID: "user-1", Name: "Alice"}, "hello", now.Add(2*time.Minute))
-	session.AppendAgentMessage(model.User{ID: "agent-1", Name: "DM Agent"}, "reply", now.Add(3*time.Minute))
+	session.AppendUserMessage(model.SessionUser{ID: "user-1", Name: "Alice"}, "hello", now.Add(2*time.Minute))
+	session.AppendAgentMessage(model.SessionUser{ID: "agent-1", Name: "DM Agent"}, "reply", now.Add(3*time.Minute))
 
 	repo := NewCompositeSessionRepository(
 		postgresstore.NewPGSessionStore(deps.db),
@@ -73,7 +73,7 @@ func TestIntegrationSessionRepositoryUpdatesPGAndRefreshesRedisAfterReload(t *te
 
 	now := time.Date(2026, 4, 4, 13, 0, 0, 0, time.UTC)
 	session := model.NewSession("session-int-update-1", model.ChannelBot, now)
-	session.AppendUserMessage(model.User{ID: "user-1", Name: "Alice"}, "first", now.Add(time.Minute))
+	session.AppendUserMessage(model.SessionUser{ID: "user-1", Name: "Alice"}, "first", now.Add(time.Minute))
 
 	repo := NewCompositeSessionRepository(
 		postgresstore.NewPGSessionStore(deps.db),
@@ -88,7 +88,7 @@ func TestIntegrationSessionRepositoryUpdatesPGAndRefreshesRedisAfterReload(t *te
 		t.Fatalf("expected initial load to succeed, got %v", err)
 	}
 
-	session.AppendAgentMessage(model.User{ID: "agent-1", Name: "DM Agent"}, "second", now.Add(2*time.Minute))
+	session.AppendAgentMessage(model.SessionUser{ID: "agent-1", Name: "DM Agent"}, "second", now.Add(2*time.Minute))
 	if err := repo.Save(ctx, session); err != nil {
 		t.Fatalf("expected update save to succeed, got %v", err)
 	}

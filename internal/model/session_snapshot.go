@@ -12,16 +12,11 @@ type SessionSnapshot struct {
 
 type HistoryRecordSnapshot struct {
 	ID        string          `json:"id"`
-	User      UserSnapshot    `json:"user"`
+	User      SessionUser     `json:"user"`
 	Message   MessageSnapshot `json:"message"`
 	Sequence  int64           `json:"sequence"`
 	Source    MessageSource   `json:"source"`
 	CreatedAt time.Time       `json:"created_at"`
-}
-
-type UserSnapshot struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
 }
 
 type MessageSnapshot struct {
@@ -54,11 +49,8 @@ func toHistoryRecordSnapshots(records []HistoryRecord) []HistoryRecordSnapshot {
 	snapshots := make([]HistoryRecordSnapshot, len(records))
 	for i, record := range records {
 		snapshots[i] = HistoryRecordSnapshot{
-			ID: record.ID,
-			User: UserSnapshot{
-				ID:   record.User.ID,
-				Name: record.User.Name,
-			},
+			ID:   record.ID,
+			User: record.User,
 			Message: MessageSnapshot{
 				Content: record.Message.Content,
 			},
@@ -76,11 +68,8 @@ func restoreHistoryRecords(records []HistoryRecordSnapshot) []HistoryRecord {
 	restored := make([]HistoryRecord, len(records))
 	for i, record := range records {
 		restored[i] = HistoryRecord{
-			ID: record.ID,
-			User: User{
-				ID:   record.User.ID,
-				Name: record.User.Name,
-			},
+			ID:   record.ID,
+			User: record.User,
 			Message: Message{
 				Content: record.Message.Content,
 			},

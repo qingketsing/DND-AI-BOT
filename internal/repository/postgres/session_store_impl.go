@@ -114,7 +114,7 @@ func (s *PGSessionStore) GetSession(ctx context.Context, sessionID string) (*mod
 
 		history = append(history, model.HistoryRecord{
 			ID: recordID,
-			User: model.User{
+			User: model.SessionUser{
 				ID:   userID,
 				Name: userName,
 			},

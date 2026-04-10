@@ -70,8 +70,8 @@ func newTestProvider(t *testing.T) (*DefaultProvider, *model.Session) {
 	now := time.Date(2026, 4, 3, 12, 0, 0, 0, time.UTC)
 	session := model.NewSession("session-bot", model.ChannelBot, now)
 	session.AppendSystemMessage("system", now.Add(time.Minute))
-	session.AppendUserMessage(model.User{ID: "user-1", Name: "Alice"}, "hello", now.Add(2*time.Minute))
-	session.AppendAgentMessage(model.User{ID: "agent-1", Name: "DM Agent"}, "reply", now.Add(3*time.Minute))
+	session.AppendUserMessage(model.SessionUser{ID: "user-1", Name: "Alice"}, "hello", now.Add(2*time.Minute))
+	session.AppendAgentMessage(model.SessionUser{ID: "agent-1", Name: "DM Agent"}, "reply", now.Add(3*time.Minute))
 
 	if err := repository.Save(context.Background(), session); err != nil {
 		t.Fatalf("expected save to succeed, got %v", err)

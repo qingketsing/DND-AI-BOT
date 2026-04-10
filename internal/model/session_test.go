@@ -31,7 +31,7 @@ func TestAppendUserMessageAddsRecordAndUpdatesSession(t *testing.T) {
 	createdAt := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
 	messageAt := createdAt.Add(2 * time.Minute)
 	session := NewSession("session-1", ChannelWeb, createdAt)
-	user := User{ID: "user-1", Name: "Alice"}
+	user := SessionUser{ID: "user-1", Name: "Alice"}
 
 	record := session.AppendUserMessage(user, "hello", messageAt)
 
@@ -64,7 +64,7 @@ func TestAppendUserMessageAddsRecordAndUpdatesSession(t *testing.T) {
 func TestAppendAgentAndSystemMessagesUseExpectedSources(t *testing.T) {
 	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
 	session := NewSession("session-1", ChannelWeb, now)
-	agent := User{ID: "agent-1", Name: "DM Agent"}
+	agent := SessionUser{ID: "agent-1", Name: "DM Agent"}
 
 	agentRecord := session.AppendAgentMessage(agent, "agent reply", now.Add(time.Minute))
 	systemRecord := session.AppendSystemMessage("system note", now.Add(2*time.Minute))
@@ -91,7 +91,7 @@ func TestLastRecordReturnsLatestHistoryRecord(t *testing.T) {
 		t.Fatal("expected no last record for empty session")
 	}
 
-	session.AppendUserMessage(User{ID: "user-1", Name: "Alice"}, "hello", now.Add(time.Minute))
+	session.AppendUserMessage(SessionUser{ID: "user-1", Name: "Alice"}, "hello", now.Add(time.Minute))
 	last, ok := session.LastRecord()
 	if !ok {
 		t.Fatal("expected last record after append")
@@ -104,7 +104,7 @@ func TestLastRecordReturnsLatestHistoryRecord(t *testing.T) {
 func TestHistoryRecordsReturnsCopy(t *testing.T) {
 	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
 	session := NewSession("session-1", ChannelWeb, now)
-	session.AppendUserMessage(User{ID: "user-1", Name: "Alice"}, "hello", now.Add(time.Minute))
+	session.AppendUserMessage(SessionUser{ID: "user-1", Name: "Alice"}, "hello", now.Add(time.Minute))
 
 	history := session.HistoryRecords()
 	history[0].Message.Content = "mutated"

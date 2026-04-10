@@ -8,7 +8,7 @@ import (
 func TestSessionToSnapshotCopiesSessionData(t *testing.T) {
 	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
 	session := NewSession("session-1", ChannelBot, now)
-	session.AppendUserMessage(User{ID: "user-1", Name: "Alice"}, "hello", now.Add(time.Minute))
+	session.AppendUserMessage(SessionUser{ID: "user-1", Name: "Alice"}, "hello", now.Add(time.Minute))
 	session.AppendSystemMessage("system note", now.Add(2*time.Minute))
 
 	snapshot := session.ToSnapshot()
@@ -33,7 +33,7 @@ func TestSessionToSnapshotCopiesSessionData(t *testing.T) {
 func TestSessionToSnapshotReturnsDeepCopy(t *testing.T) {
 	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
 	session := NewSession("session-1", ChannelWeb, now)
-	session.AppendUserMessage(User{ID: "user-1", Name: "Alice"}, "hello", now.Add(time.Minute))
+	session.AppendUserMessage(SessionUser{ID: "user-1", Name: "Alice"}, "hello", now.Add(time.Minute))
 
 	snapshot := session.ToSnapshot()
 	snapshot.History[0].Message.Content = "mutated"
@@ -46,11 +46,11 @@ func TestSessionToSnapshotReturnsDeepCopy(t *testing.T) {
 func TestRestoreSessionRestoresIndependentSession(t *testing.T) {
 	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
 	original := NewSession("session-1", ChannelBot, now)
-	original.AppendUserMessage(User{ID: "user-1", Name: "Alice"}, "hello", now.Add(time.Minute))
+	original.AppendUserMessage(SessionUser{ID: "user-1", Name: "Alice"}, "hello", now.Add(time.Minute))
 	snapshot := original.ToSnapshot()
 
 	restored := RestoreSession(snapshot)
-	restored.AppendAgentMessage(User{ID: "agent-1", Name: "DM Agent"}, "reply", now.Add(2*time.Minute))
+	restored.AppendAgentMessage(SessionUser{ID: "agent-1", Name: "DM Agent"}, "reply", now.Add(2*time.Minute))
 	if restored.Channel != ChannelBot {
 		t.Fatalf("expected restored channel %q, got %q", ChannelBot, restored.Channel)
 	}
