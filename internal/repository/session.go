@@ -10,4 +10,5 @@ import (
 type SessionRepository interface {
 	Save(ctx context.Context, session *model.Session) error
 	Load(ctx context.Context, sessionID string) (*model.Session, error)
+	ListByUserID(ctx context.Context, userID string) ([]*model.Session, error)
 }

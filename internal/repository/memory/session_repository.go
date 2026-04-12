@@ -55,6 +55,24 @@ func (r *SessionRepository) Load(ctx context.Context, id string) (*model.Session
 	return model.RestoreSession(snapshot), nil
 }
 
+// ListByUserID 返回指定用户的全部会话快照副本。
+func (r *SessionRepository) ListByUserID(ctx context.Context, userID string) ([]*model.Session, error) {
+	_ = ctx
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	sessions := make([]*model.Session, 0)
+	for _, snapshot := range r.sessions {
+		if snapshot.UserID != userID {
+			continue
+		}
+		sessions = append(sessions, model.RestoreSession(snapshot))
+	}
+
+	return sessions, nil
+}
+
 // Exists 判断目标会话是否存在于仓库中。
 func (r *SessionRepository) Exists(id string) bool {
 	if id == "" {

@@ -11,6 +11,7 @@ import (
 	"DND-AI-BOT/internal/repository"
 	"DND-AI-BOT/internal/service"
 	"DND-AI-BOT/internal/transport/http/dto"
+	"DND-AI-BOT/internal/transport/http/middleware"
 )
 
 // SessionHandler 负责处理会话相关 HTTP 请求。
@@ -30,13 +31,22 @@ func (h *SessionHandler) CreateSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	user, ok := middleware.UserFromContext(r.Context())
+	if !ok {
+		handleServiceError(w, service.ErrUnauthorized)
+		return
+	}
+
 	var request dto.CreateSessionRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", "invalid request body")
 		return
 	}
 
-	session, err := h.service.CreateSession(r.Context(), model.Channel(strings.TrimSpace(request.Channel)), time.Now().UTC())
+	session, err := h.service.CreateSession(r.Context(), service.CreateSessionInput{
+		UserID:  user.UserID,
+		Channel: model.Channel(strings.TrimSpace(request.Channel)),
+	}, time.Now().UTC())
 	if err != nil {
 		handleServiceError(w, err)
 		return
@@ -52,13 +62,19 @@ func (h *SessionHandler) GetSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	user, ok := middleware.UserFromContext(r.Context())
+	if !ok {
+		handleServiceError(w, service.ErrUnauthorized)
+		return
+	}
+
 	sessionID := readSessionID(r.URL.Path)
 	if sessionID == "" {
 		writeError(w, http.StatusBadRequest, "invalid_request", "session id is required")
 		return
 	}
 
-	session, err := h.service.GetSession(r.Context(), sessionID)
+	session, err := h.service.GetSessionForUser(r.Context(), user.UserID, sessionID)
 	if err != nil {
 		handleServiceError(w, err)
 		return
@@ -67,10 +83,38 @@ func (h *SessionHandler) GetSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, dto.ToSessionResponse(session))
 }
 
+// ListSessions 处理当前用户的会话列表请求。
+func (h *SessionHandler) ListSessions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	user, ok := middleware.UserFromContext(r.Context())
+	if !ok {
+		handleServiceError(w, service.ErrUnauthorized)
+		return
+	}
+
+	sessions, err := h.service.ListSessions(r.Context(), user.UserID)
+	if err != nil {
+		handleServiceError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, dto.ToSessionListResponse(sessions))
+}
+
 // SendMessage 处理发送消息请求。
 func (h *SessionHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	user, ok := middleware.UserFromContext(r.Context())
+	if !ok {
+		handleServiceError(w, service.ErrUnauthorized)
 		return
 	}
 
@@ -86,10 +130,8 @@ func (h *SessionHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session, err := h.service.SendMessage(r.Context(), service.SendMessageInput{
+	session, err := h.service.SendMessage(r.Context(), user.UserID, user.DisplayName, service.SendMessageInput{
 		SessionID: sessionID,
-		UserID:    request.UserID,
-		UserName:  request.UserName,
 		Content:   request.Content,
 	}, time.Now().UTC())
 	if err != nil {
@@ -102,8 +144,12 @@ func (h *SessionHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 
 func handleServiceError(w http.ResponseWriter, err error) {
 	switch {
+	case errors.Is(err, service.ErrUnauthorized):
+		writeError(w, http.StatusUnauthorized, "unauthorized", err.Error())
 	case errors.Is(err, service.ErrInvalidMessage), errors.Is(err, service.ErrInvalidChannel):
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+	case errors.Is(err, service.ErrSessionForbidden):
+		writeError(w, http.StatusForbidden, "session_forbidden", err.Error())
 	case errors.Is(err, repository.ErrSessionNotFound):
 		writeError(w, http.StatusNotFound, "session_not_found", err.Error())
 	default:

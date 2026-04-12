@@ -37,7 +37,7 @@ func NewAuthMiddleware(authService *service.AuthService) func(http.Handler) http
 				return
 			}
 
-			ctx := withAuthenticatedUser(r.Context(), AuthenticatedUser{
+			ctx := WithAuthenticatedUser(r.Context(), AuthenticatedUser{
 				UserID:      user.ID,
 				Email:       user.Email,
 				DisplayName: user.DisplayName,
@@ -53,7 +53,7 @@ func UserFromContext(ctx context.Context) (AuthenticatedUser, bool) {
 	return user, ok
 }
 
-func withAuthenticatedUser(ctx context.Context, user AuthenticatedUser) context.Context {
+func WithAuthenticatedUser(ctx context.Context, user AuthenticatedUser) context.Context {
 	return context.WithValue(ctx, authenticatedUserContextKey, user)
 }
 

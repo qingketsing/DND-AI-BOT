@@ -27,12 +27,14 @@ func (s *PGSessionStore) UpsertSession(ctx context.Context, session *model.Sessi
 	defer tx.Rollback()
 
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO sessions (id, channel, created_at, updated_at)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO sessions (id, user_id, title, channel, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (id) DO UPDATE
-		SET channel = EXCLUDED.channel,
+		SET user_id = EXCLUDED.user_id,
+		    title = EXCLUDED.title,
+		    channel = EXCLUDED.channel,
 		    updated_at = EXCLUDED.updated_at
-	`, session.ID, string(session.Channel), session.CreatedAt, session.UpdatedAt)
+	`, session.ID, session.UserID, session.Title, string(session.Channel), session.CreatedAt, session.UpdatedAt)
 	if err != nil {
 		return err
 	}
@@ -68,16 +70,18 @@ func (s *PGSessionStore) UpsertSession(ctx context.Context, session *model.Sessi
 func (s *PGSessionStore) GetSession(ctx context.Context, sessionID string) (*model.Session, error) {
 	var (
 		id        string
+		userID    string
+		title     string
 		channel   string
 		createdAt sql.NullTime
 		updatedAt sql.NullTime
 	)
 
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, channel, created_at, updated_at
+		SELECT id, user_id, title, channel, created_at, updated_at
 		FROM sessions
 		WHERE id = $1
-	`, sessionID).Scan(&id, &channel, &createdAt, &updatedAt)
+	`, sessionID).Scan(&id, &userID, &title, &channel, &createdAt, &updatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, repository.ErrSessionNotFound
 	}
@@ -132,9 +136,56 @@ func (s *PGSessionStore) GetSession(ctx context.Context, sessionID string) (*mod
 
 	return &model.Session{
 		ID:        id,
+		UserID:    userID,
+		Title:     title,
 		Channel:   model.Channel(channel),
 		History:   history,
 		CreatedAt: createdAt.Time,
 		UpdatedAt: updatedAt.Time,
 	}, nil
+}
+
+// ListSessionsByUserID 返回指定用户的所有会话。
+func (s *PGSessionStore) ListSessionsByUserID(ctx context.Context, userID string) ([]*model.Session, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, user_id, title, channel, created_at, updated_at
+		FROM sessions
+		WHERE user_id = $1
+		ORDER BY updated_at DESC
+	`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	sessions := make([]*model.Session, 0)
+	for rows.Next() {
+		var (
+			id            string
+			sessionUserID string
+			title         string
+			channel       string
+			createdAt     sql.NullTime
+			updatedAt     sql.NullTime
+		)
+
+		if err := rows.Scan(&id, &sessionUserID, &title, &channel, &createdAt, &updatedAt); err != nil {
+			return nil, err
+		}
+
+		sessions = append(sessions, &model.Session{
+			ID:        id,
+			UserID:    sessionUserID,
+			Title:     title,
+			Channel:   model.Channel(channel),
+			History:   []model.HistoryRecord{},
+			CreatedAt: createdAt.Time,
+			UpdatedAt: updatedAt.Time,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return sessions, nil
 }

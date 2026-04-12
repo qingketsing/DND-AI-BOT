@@ -8,10 +8,16 @@ import (
 func TestNewSessionInitializesTimestampsAndEmptyHistory(t *testing.T) {
 	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
 
-	session := NewSession("session-1", ChannelWeb, now)
+	session := NewSession("session-1", "user-1", ChannelWeb, now)
 
 	if session.ID != "session-1" {
 		t.Fatalf("expected session id session-1, got %q", session.ID)
+	}
+	if session.UserID != "user-1" {
+		t.Fatalf("expected session user id user-1, got %q", session.UserID)
+	}
+	if session.Title != "新会话" {
+		t.Fatalf("expected default title 新会话, got %q", session.Title)
 	}
 	if session.Channel != ChannelWeb {
 		t.Fatalf("expected session channel %q, got %q", ChannelWeb, session.Channel)
@@ -30,7 +36,7 @@ func TestNewSessionInitializesTimestampsAndEmptyHistory(t *testing.T) {
 func TestAppendUserMessageAddsRecordAndUpdatesSession(t *testing.T) {
 	createdAt := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
 	messageAt := createdAt.Add(2 * time.Minute)
-	session := NewSession("session-1", ChannelWeb, createdAt)
+	session := NewSession("session-1", "user-1", ChannelWeb, createdAt)
 	user := SessionUser{ID: "user-1", Name: "Alice"}
 
 	record := session.AppendUserMessage(user, "hello", messageAt)
@@ -63,7 +69,7 @@ func TestAppendUserMessageAddsRecordAndUpdatesSession(t *testing.T) {
 
 func TestAppendAgentAndSystemMessagesUseExpectedSources(t *testing.T) {
 	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
-	session := NewSession("session-1", ChannelWeb, now)
+	session := NewSession("session-1", "user-1", ChannelWeb, now)
 	agent := SessionUser{ID: "agent-1", Name: "DM Agent"}
 
 	agentRecord := session.AppendAgentMessage(agent, "agent reply", now.Add(time.Minute))
@@ -85,7 +91,7 @@ func TestAppendAgentAndSystemMessagesUseExpectedSources(t *testing.T) {
 
 func TestLastRecordReturnsLatestHistoryRecord(t *testing.T) {
 	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
-	session := NewSession("session-1", ChannelWeb, now)
+	session := NewSession("session-1", "user-1", ChannelWeb, now)
 
 	if _, ok := session.LastRecord(); ok {
 		t.Fatal("expected no last record for empty session")
@@ -103,7 +109,7 @@ func TestLastRecordReturnsLatestHistoryRecord(t *testing.T) {
 
 func TestHistoryRecordsReturnsCopy(t *testing.T) {
 	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
-	session := NewSession("session-1", ChannelWeb, now)
+	session := NewSession("session-1", "user-1", ChannelWeb, now)
 	session.AppendUserMessage(SessionUser{ID: "user-1", Name: "Alice"}, "hello", now.Add(time.Minute))
 
 	history := session.HistoryRecords()

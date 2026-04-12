@@ -18,7 +18,10 @@ func TestCreateSessionSavesSessionToRepository(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
 
-	session, err := service.CreateSession(ctx, model.ChannelWeb, now)
+	session, err := service.CreateSession(ctx, CreateSessionInput{
+		UserID:  "user-1",
+		Channel: model.ChannelWeb,
+	}, now)
 	if err != nil {
 		t.Fatalf("expected create session to succeed, got %v", err)
 	}
@@ -28,16 +31,19 @@ func TestCreateSessionSavesSessionToRepository(t *testing.T) {
 	if session.Channel != model.ChannelWeb {
 		t.Fatalf("expected session channel %q, got %q", model.ChannelWeb, session.Channel)
 	}
+	if session.UserID != "user-1" {
+		t.Fatalf("expected session user id %q, got %q", "user-1", session.UserID)
+	}
 	if !sessionRepository.Exists(session.ID) {
 		t.Fatalf("expected repository to contain session %q", session.ID)
 	}
 }
 
-func TestGetSessionReturnsNotFoundForMissingSession(t *testing.T) {
+func TestGetSessionForUserReturnsNotFoundForMissingSession(t *testing.T) {
 	service := NewSessionService(memory.NewSessionRepository())
 	ctx := context.Background()
 
-	_, err := service.GetSession(ctx, "missing")
+	_, err := service.GetSessionForUser(ctx, "user-1", "missing")
 	if !errors.Is(err, repository.ErrSessionNotFound) {
 		t.Fatalf("expected ErrSessionNotFound, got %v", err)
 	}
@@ -47,15 +53,16 @@ func TestSendMessageAppendsUserAndMockReply(t *testing.T) {
 	service := NewSessionService(memory.NewSessionRepository())
 	ctx := context.Background()
 	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
-	session, err := service.CreateSession(ctx, model.ChannelWeb, now)
+	session, err := service.CreateSession(ctx, CreateSessionInput{
+		UserID:  "user-1",
+		Channel: model.ChannelWeb,
+	}, now)
 	if err != nil {
 		t.Fatalf("expected create session to succeed, got %v", err)
 	}
 
-	updated, err := service.SendMessage(ctx, SendMessageInput{
+	updated, err := service.SendMessage(ctx, "user-1", "Alice", SendMessageInput{
 		SessionID: session.ID,
-		UserID:    "user-1",
-		UserName:  "Alice",
 		Content:   "hello",
 	}, now.Add(time.Minute))
 	if err != nil {
@@ -87,15 +94,16 @@ func TestSendMessageUsesAgentServiceReplyWhenConfigured(t *testing.T) {
 	service := NewSessionService(repository, agentService)
 	ctx := context.Background()
 	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
-	session, err := service.CreateSession(ctx, model.ChannelWeb, now)
+	session, err := service.CreateSession(ctx, CreateSessionInput{
+		UserID:  "user-1",
+		Channel: model.ChannelWeb,
+	}, now)
 	if err != nil {
 		t.Fatalf("expected create session to succeed, got %v", err)
 	}
 
-	updated, err := service.SendMessage(ctx, SendMessageInput{
+	updated, err := service.SendMessage(ctx, "user-1", "Alice", SendMessageInput{
 		SessionID: session.ID,
-		UserID:    "user-1",
-		UserName:  "Alice",
 		Content:   "我的背包里有什么？",
 	}, now.Add(time.Minute))
 	if err != nil {
@@ -118,15 +126,16 @@ func TestSendMessagePassesDefaultSystemPromptToAgent(t *testing.T) {
 	service := NewSessionService(repository, agentService)
 	ctx := context.Background()
 	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
-	session, err := service.CreateSession(ctx, model.ChannelWeb, now)
+	session, err := service.CreateSession(ctx, CreateSessionInput{
+		UserID:  "user-1",
+		Channel: model.ChannelWeb,
+	}, now)
 	if err != nil {
 		t.Fatalf("expected create session to succeed, got %v", err)
 	}
 
-	_, err = service.SendMessage(ctx, SendMessageInput{
+	_, err = service.SendMessage(ctx, "user-1", "Alice", SendMessageInput{
 		SessionID: session.ID,
-		UserID:    "user-1",
-		UserName:  "Alice",
 		Content:   "法师怎么准备法术？",
 	}, now.Add(time.Minute))
 	if err != nil {
@@ -142,15 +151,16 @@ func TestSendMessageRejectsEmptyContent(t *testing.T) {
 	service := NewSessionService(memory.NewSessionRepository())
 	ctx := context.Background()
 	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
-	session, err := service.CreateSession(ctx, model.ChannelWeb, now)
+	session, err := service.CreateSession(ctx, CreateSessionInput{
+		UserID:  "user-1",
+		Channel: model.ChannelWeb,
+	}, now)
 	if err != nil {
 		t.Fatalf("expected create session to succeed, got %v", err)
 	}
 
-	_, err = service.SendMessage(ctx, SendMessageInput{
+	_, err = service.SendMessage(ctx, "user-1", "Alice", SendMessageInput{
 		SessionID: session.ID,
-		UserID:    "user-1",
-		UserName:  "Alice",
 		Content:   "   ",
 	}, now.Add(time.Minute))
 	if !errors.Is(err, ErrInvalidMessage) {
@@ -163,8 +173,72 @@ func TestCreateSessionRejectsInvalidChannel(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
 
-	_, err := service.CreateSession(ctx, model.Channel("desktop"), now)
+	_, err := service.CreateSession(ctx, CreateSessionInput{
+		UserID:  "user-1",
+		Channel: model.Channel("desktop"),
+	}, now)
 	if !errors.Is(err, ErrInvalidChannel) {
 		t.Fatalf("expected ErrInvalidChannel, got %v", err)
+	}
+}
+
+func TestGetSessionForUserReturnsForbiddenForDifferentOwner(t *testing.T) {
+	service := NewSessionService(memory.NewSessionRepository())
+	ctx := context.Background()
+	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
+
+	session, err := service.CreateSession(ctx, CreateSessionInput{
+		UserID:  "user-1",
+		Channel: model.ChannelWeb,
+	}, now)
+	if err != nil {
+		t.Fatalf("expected create session to succeed, got %v", err)
+	}
+
+	_, err = service.GetSessionForUser(ctx, "user-2", session.ID)
+	if !errors.Is(err, ErrSessionForbidden) {
+		t.Fatalf("expected ErrSessionForbidden, got %v", err)
+	}
+}
+
+func TestListSessionsReturnsOnlyCurrentUserSessions(t *testing.T) {
+	service := NewSessionService(memory.NewSessionRepository())
+	ctx := context.Background()
+	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
+
+	_, _ = service.CreateSession(ctx, CreateSessionInput{UserID: "user-1", Channel: model.ChannelWeb}, now)
+	_, _ = service.CreateSession(ctx, CreateSessionInput{UserID: "user-2", Channel: model.ChannelWeb}, now.Add(time.Minute))
+	_, _ = service.CreateSession(ctx, CreateSessionInput{UserID: "user-1", Channel: model.ChannelBot}, now.Add(2*time.Minute))
+
+	sessions, err := service.ListSessions(ctx, "user-1")
+	if err != nil {
+		t.Fatalf("expected list sessions to succeed, got %v", err)
+	}
+	if len(sessions) != 2 {
+		t.Fatalf("expected 2 sessions for user-1, got %d", len(sessions))
+	}
+	for _, session := range sessions {
+		if session.UserID != "user-1" {
+			t.Fatalf("expected session user id %q, got %q", "user-1", session.UserID)
+		}
+	}
+}
+
+func TestSendMessageRejectsDifferentOwner(t *testing.T) {
+	service := NewSessionService(memory.NewSessionRepository())
+	ctx := context.Background()
+	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
+
+	session, err := service.CreateSession(ctx, CreateSessionInput{UserID: "user-1", Channel: model.ChannelWeb}, now)
+	if err != nil {
+		t.Fatalf("expected create session to succeed, got %v", err)
+	}
+
+	_, err = service.SendMessage(ctx, "user-2", "Bob", SendMessageInput{
+		SessionID: session.ID,
+		Content:   "hello",
+	}, now.Add(time.Minute))
+	if !errors.Is(err, ErrSessionForbidden) {
+		t.Fatalf("expected ErrSessionForbidden, got %v", err)
 	}
 }

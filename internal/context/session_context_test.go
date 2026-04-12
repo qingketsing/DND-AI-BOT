@@ -68,7 +68,7 @@ func newTestSessionContextStore(t *testing.T) (*DefaultSessionContextStore, *mod
 
 	repository := memory.NewSessionRepository()
 	now := time.Date(2026, 4, 3, 12, 0, 0, 0, time.UTC)
-	session := model.NewSession("session-1", model.ChannelWeb, now)
+	session := model.NewSession("session-1", "user-1", model.ChannelWeb, now)
 	session.AppendSystemMessage("system", now.Add(time.Minute))
 	session.AppendUserMessage(model.SessionUser{ID: "user-1", Name: "Alice"}, "hello", now.Add(2*time.Minute))
 	session.AppendAgentMessage(model.SessionUser{ID: "agent-1", Name: "DM Agent"}, "reply", now.Add(3*time.Minute))

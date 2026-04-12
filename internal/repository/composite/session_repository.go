@@ -79,6 +79,11 @@ func (r *CompositeSessionRepository) Load(ctx context.Context, sessionID string)
 	return value.(*model.Session), nil
 }
 
+// ListByUserID 直接从 PostgreSQL 真相源加载指定用户的会话列表。
+func (r *CompositeSessionRepository) ListByUserID(ctx context.Context, userID string) ([]*model.Session, error) {
+	return r.store.ListSessionsByUserID(ctx, userID)
+}
+
 // singleflightGroup 是最小实现的单飞结构，用于防止缓存击穿时重复回源。
 type singleflightGroup struct {
 	mu    sync.Mutex

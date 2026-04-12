@@ -7,7 +7,7 @@ import (
 
 func TestSessionToSnapshotCopiesSessionData(t *testing.T) {
 	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
-	session := NewSession("session-1", ChannelBot, now)
+	session := NewSession("session-1", "user-1", ChannelBot, now)
 	session.AppendUserMessage(SessionUser{ID: "user-1", Name: "Alice"}, "hello", now.Add(time.Minute))
 	session.AppendSystemMessage("system note", now.Add(2*time.Minute))
 
@@ -15,6 +15,12 @@ func TestSessionToSnapshotCopiesSessionData(t *testing.T) {
 
 	if snapshot.ID != session.ID {
 		t.Fatalf("expected snapshot id %q, got %q", session.ID, snapshot.ID)
+	}
+	if snapshot.UserID != session.UserID {
+		t.Fatalf("expected snapshot user id %q, got %q", session.UserID, snapshot.UserID)
+	}
+	if snapshot.Title != session.Title {
+		t.Fatalf("expected snapshot title %q, got %q", session.Title, snapshot.Title)
 	}
 	if snapshot.Channel != ChannelBot {
 		t.Fatalf("expected snapshot channel %q, got %q", ChannelBot, snapshot.Channel)
@@ -32,7 +38,7 @@ func TestSessionToSnapshotCopiesSessionData(t *testing.T) {
 
 func TestSessionToSnapshotReturnsDeepCopy(t *testing.T) {
 	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
-	session := NewSession("session-1", ChannelWeb, now)
+	session := NewSession("session-1", "user-1", ChannelWeb, now)
 	session.AppendUserMessage(SessionUser{ID: "user-1", Name: "Alice"}, "hello", now.Add(time.Minute))
 
 	snapshot := session.ToSnapshot()
@@ -45,7 +51,7 @@ func TestSessionToSnapshotReturnsDeepCopy(t *testing.T) {
 
 func TestRestoreSessionRestoresIndependentSession(t *testing.T) {
 	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
-	original := NewSession("session-1", ChannelBot, now)
+	original := NewSession("session-1", "user-1", ChannelBot, now)
 	original.AppendUserMessage(SessionUser{ID: "user-1", Name: "Alice"}, "hello", now.Add(time.Minute))
 	snapshot := original.ToSnapshot()
 
@@ -53,6 +59,9 @@ func TestRestoreSessionRestoresIndependentSession(t *testing.T) {
 	restored.AppendAgentMessage(SessionUser{ID: "agent-1", Name: "DM Agent"}, "reply", now.Add(2*time.Minute))
 	if restored.Channel != ChannelBot {
 		t.Fatalf("expected restored channel %q, got %q", ChannelBot, restored.Channel)
+	}
+	if restored.UserID != original.UserID {
+		t.Fatalf("expected restored user id %q, got %q", original.UserID, restored.UserID)
 	}
 
 	if len(restored.History) != 2 {

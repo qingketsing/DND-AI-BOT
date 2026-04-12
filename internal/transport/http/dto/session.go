@@ -13,18 +13,31 @@ type CreateSessionRequest struct {
 
 // SendMessageRequest 定义发送消息接口的请求体。
 type SendMessageRequest struct {
-	UserID   string `json:"user_id"`
-	UserName string `json:"user_name"`
-	Content  string `json:"content"`
+	Content string `json:"content"`
 }
 
 // SessionResponse 定义会话接口的统一响应结构。
 type SessionResponse struct {
 	ID        string             `json:"id"`
+	UserID    string             `json:"user_id"`
+	Title     string             `json:"title"`
 	Channel   string             `json:"channel"`
 	History   []HistoryRecordDTO `json:"history"`
 	CreatedAt time.Time          `json:"created_at"`
 	UpdatedAt time.Time          `json:"updated_at"`
+}
+
+// SessionListItemResponse 定义会话列表项响应结构。
+type SessionListItemResponse struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Channel   string    `json:"channel"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// SessionListResponse 定义会话列表响应结构。
+type SessionListResponse struct {
+	Items []SessionListItemResponse `json:"items"`
 }
 
 // HistoryRecordDTO 表示单条历史消息的传输结构。
@@ -68,11 +81,28 @@ func ToSessionResponse(session *model.Session) SessionResponse {
 
 	return SessionResponse{
 		ID:        session.ID,
+		UserID:    session.UserID,
+		Title:     session.Title,
 		Channel:   string(session.Channel),
 		History:   history,
 		CreatedAt: session.CreatedAt,
 		UpdatedAt: session.UpdatedAt,
 	}
+}
+
+// ToSessionListResponse 将会话切片转换为列表响应。
+func ToSessionListResponse(sessions []*model.Session) SessionListResponse {
+	items := make([]SessionListItemResponse, 0, len(sessions))
+	for _, session := range sessions {
+		items = append(items, SessionListItemResponse{
+			ID:        session.ID,
+			Title:     session.Title,
+			Channel:   string(session.Channel),
+			UpdatedAt: session.UpdatedAt,
+		})
+	}
+
+	return SessionListResponse{Items: items}
 }
 
 // ToHistoryRecordDTO 将领域历史记录转换为 HTTP 响应项。

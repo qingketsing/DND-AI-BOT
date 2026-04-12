@@ -4,6 +4,8 @@ import "time"
 
 type SessionSnapshot struct {
 	ID        string                  `json:"id"`
+	UserID    string                  `json:"user_id"`
+	Title     string                  `json:"title"`
 	Channel   Channel                 `json:"channel"`
 	History   []HistoryRecordSnapshot `json:"history"`
 	CreatedAt time.Time               `json:"created_at"`
@@ -26,6 +28,8 @@ type MessageSnapshot struct {
 func (s *Session) ToSnapshot() SessionSnapshot {
 	return SessionSnapshot{
 		ID:        s.ID,
+		UserID:    s.UserID,
+		Title:     s.Title,
 		Channel:   s.Channel,
 		History:   toHistoryRecordSnapshots(s.History),
 		CreatedAt: s.CreatedAt,
@@ -37,6 +41,8 @@ func (s *Session) ToSnapshot() SessionSnapshot {
 func RestoreSession(snapshot SessionSnapshot) *Session {
 	return &Session{
 		ID:        snapshot.ID,
+		UserID:    snapshot.UserID,
+		Title:     snapshot.Title,
 		Channel:   snapshot.Channel,
 		History:   restoreHistoryRecords(snapshot.History),
 		CreatedAt: snapshot.CreatedAt,

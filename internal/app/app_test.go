@@ -68,3 +68,25 @@ func TestNewAppProtectsAuthMeRoute(t *testing.T) {
 		t.Fatalf("expected status %d, got %d", http.StatusUnauthorized, recorder.Code)
 	}
 }
+
+func TestNewAppProtectsSessionsRoute(t *testing.T) {
+	t.Setenv("MODEL_PROVIDER", "mock")
+	t.Setenv("MODEL_NAME", "")
+	t.Setenv("MODEL_API_KEY", "")
+	t.Setenv("MODEL_BASE_URL", "")
+	t.Setenv("MODEL_TIMEOUT_SECONDS", "")
+
+	application, err := NewApp(&bootstrap.RuntimeDependencies{})
+	if err != nil {
+		t.Fatalf("expected app build to succeed, got %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/sessions", nil)
+	recorder := httptest.NewRecorder()
+
+	application.Handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("expected status %d, got %d", http.StatusUnauthorized, recorder.Code)
+	}
+}

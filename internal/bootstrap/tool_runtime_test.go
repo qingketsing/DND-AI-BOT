@@ -110,7 +110,7 @@ func newToolRuntimeInput(t *testing.T) ToolRuntimeInput {
 
 	now := time.Now().UTC()
 	sessionRepo := memory.NewSessionRepository()
-	session := model.NewSession("session-1", model.ChannelBot, now)
+	session := model.NewSession("session-1", "user-1", model.ChannelBot, now)
 	session.AppendUserMessage(model.SessionUser{ID: "user-1", Name: "Hero"}, "hello", now)
 	if err := sessionRepo.Save(context.Background(), session); err != nil {
 		t.Fatalf("expected session save to succeed, got %v", err)

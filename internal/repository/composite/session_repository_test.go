@@ -11,7 +11,7 @@ import (
 )
 
 func TestSessionRepositoryLoadReturnsCachedValue(t *testing.T) {
-	session := model.NewSession("session-1", model.ChannelWeb, time.Now().UTC())
+	session := model.NewSession("session-1", "user-1", model.ChannelWeb, time.Now().UTC())
 	cache := &fakeSessionCache{session: session}
 	store := &fakeSessionStore{}
 	repo := NewCompositeSessionRepository(store, cache, CachePolicy{})
@@ -29,7 +29,7 @@ func TestSessionRepositoryLoadReturnsCachedValue(t *testing.T) {
 }
 
 func TestSessionRepositoryLoadFallsBackToStoreAndBackfillsCache(t *testing.T) {
-	session := model.NewSession("session-1", model.ChannelWeb, time.Now().UTC())
+	session := model.NewSession("session-1", "user-1", model.ChannelWeb, time.Now().UTC())
 	cache := &fakeSessionCache{getErr: repository.ErrCacheMiss}
 	store := &fakeSessionStore{session: session}
 	repo := NewCompositeSessionRepository(store, cache, CachePolicy{
@@ -81,7 +81,7 @@ func TestSessionRepositoryLoadStoresNotFoundMarkerWhenStoreMisses(t *testing.T) 
 }
 
 func TestSessionRepositorySaveWritesStoreAndDeletesCache(t *testing.T) {
-	session := model.NewSession("session-1", model.ChannelWeb, time.Now().UTC())
+	session := model.NewSession("session-1", "user-1", model.ChannelWeb, time.Now().UTC())
 	cache := &fakeSessionCache{}
 	store := &fakeSessionStore{}
 	repo := NewCompositeSessionRepository(store, cache, CachePolicy{})
@@ -97,12 +97,32 @@ func TestSessionRepositorySaveWritesStoreAndDeletesCache(t *testing.T) {
 	}
 }
 
+func TestSessionRepositoryListByUserIDDelegatesToStore(t *testing.T) {
+	session := model.NewSession("session-1", "user-1", model.ChannelWeb, time.Now().UTC())
+	store := &fakeSessionStore{listSessions: []*model.Session{session}}
+	repo := NewCompositeSessionRepository(store, nil, CachePolicy{})
+
+	got, err := repo.ListByUserID(context.Background(), "user-1")
+	if err != nil {
+		t.Fatalf("expected list by user to succeed, got %v", err)
+	}
+	if len(got) != 1 || got[0].ID != session.ID {
+		t.Fatalf("expected listed session %q, got %+v", session.ID, got)
+	}
+	if store.listCalls != 1 {
+		t.Fatalf("expected list to call store once, got %d", store.listCalls)
+	}
+}
+
 type fakeSessionStore struct {
-	session     *model.Session
-	getErr      error
-	upsertErr   error
-	getCalls    int
-	upsertCalls int
+	session      *model.Session
+	listSessions []*model.Session
+	getErr       error
+	listErr      error
+	upsertErr    error
+	getCalls     int
+	listCalls    int
+	upsertCalls  int
 }
 
 func (f *fakeSessionStore) UpsertSession(ctx context.Context, session *model.Session) error {
@@ -120,6 +140,14 @@ func (f *fakeSessionStore) GetSession(ctx context.Context, sessionID string) (*m
 		return nil, f.getErr
 	}
 	return f.session, nil
+}
+
+func (f *fakeSessionStore) ListSessionsByUserID(ctx context.Context, userID string) ([]*model.Session, error) {
+	f.listCalls++
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	return f.listSessions, nil
 }
 
 type fakeSessionCache struct {

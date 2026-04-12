@@ -20,6 +20,8 @@ const (
 // Session结构体
 type Session struct {
 	ID        string          `json:"id"`
+	UserID    string          `json:"user_id"`
+	Title     string          `json:"title"`
 	Channel   Channel         `json:"channel"`
 	History   []HistoryRecord `json:"history"`
 	CreatedAt time.Time       `json:"created_at"`
@@ -53,9 +55,11 @@ var systemUser = SessionUser{
 }
 
 // 创建新的会话
-func NewSession(id string, channel Channel, now time.Time) *Session {
+func NewSession(id string, userID string, channel Channel, now time.Time) *Session {
 	return &Session{
 		ID:        id,
+		UserID:    userID,
+		Title:     "新会话",
 		Channel:   channel,
 		History:   make([]HistoryRecord, 0),
 		CreatedAt: now,

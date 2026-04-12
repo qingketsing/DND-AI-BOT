@@ -17,6 +17,8 @@ var (
 	ErrInvalidMessage = errors.New("invalid message")
 	// ErrInvalidChannel 表示传入了系统暂不支持的接入渠道。
 	ErrInvalidChannel = errors.New("invalid channel")
+	// ErrSessionForbidden 表示当前用户无权访问目标会话。
+	ErrSessionForbidden = errors.New("session forbidden")
 )
 
 // SessionService 负责编排会话创建、读取和消息收发流程。
@@ -25,11 +27,15 @@ type SessionService struct {
 	agentService *AgentService
 }
 
+// CreateSessionInput 定义创建会话时需要的最小输入。
+type CreateSessionInput struct {
+	UserID  string
+	Channel model.Channel
+}
+
 // SendMessageInput 定义发送消息时需要的最小输入。
 type SendMessageInput struct {
 	SessionID string
-	UserID    string
-	UserName  string
 	Content   string
 }
 
@@ -47,12 +53,15 @@ func NewSessionService(repository repository.SessionRepository, agentServices ..
 }
 
 // CreateSession 创建并保存一个新会话。
-func (s *SessionService) CreateSession(ctx context.Context, channel model.Channel, now time.Time) (*model.Session, error) {
-	if !isValidChannel(channel) {
+func (s *SessionService) CreateSession(ctx context.Context, input CreateSessionInput, now time.Time) (*model.Session, error) {
+	if !isValidChannel(input.Channel) {
 		return nil, ErrInvalidChannel
 	}
+	if strings.TrimSpace(input.UserID) == "" {
+		return nil, ErrUnauthorized
+	}
 
-	session := model.NewSession(generateSessionID(now), channel, now)
+	session := model.NewSession(generateSessionID(now), strings.TrimSpace(input.UserID), input.Channel, now)
 	if err := s.repository.Save(ctx, session); err != nil {
 		return nil, err
 	}
@@ -60,26 +69,47 @@ func (s *SessionService) CreateSession(ctx context.Context, channel model.Channe
 	return session, nil
 }
 
-// GetSession 按 ID 读取会话。
-func (s *SessionService) GetSession(ctx context.Context, id string) (*model.Session, error) {
-	return s.repository.Load(ctx, id)
+// ListSessions 返回指定用户的会话列表。
+func (s *SessionService) ListSessions(ctx context.Context, userID string) ([]*model.Session, error) {
+	if strings.TrimSpace(userID) == "" {
+		return nil, ErrUnauthorized
+	}
+
+	return s.repository.ListByUserID(ctx, strings.TrimSpace(userID))
+}
+
+// GetSessionForUser 按 ID 读取指定用户拥有的会话。
+func (s *SessionService) GetSessionForUser(ctx context.Context, userID string, sessionID string) (*model.Session, error) {
+	if strings.TrimSpace(userID) == "" {
+		return nil, ErrUnauthorized
+	}
+
+	session, err := s.repository.Load(ctx, strings.TrimSpace(sessionID))
+	if err != nil {
+		return nil, err
+	}
+	if session.UserID != strings.TrimSpace(userID) {
+		return nil, ErrSessionForbidden
+	}
+
+	return session, nil
 }
 
 // SendMessage 将用户消息写入会话，并通过 AgentService 或 mock 逻辑生成回复。
-func (s *SessionService) SendMessage(ctx context.Context, input SendMessageInput, now time.Time) (*model.Session, error) {
+func (s *SessionService) SendMessage(ctx context.Context, userID string, userName string, input SendMessageInput, now time.Time) (*model.Session, error) {
 	content := strings.TrimSpace(input.Content)
-	if content == "" || strings.TrimSpace(input.UserID) == "" || strings.TrimSpace(input.UserName) == "" {
+	if content == "" || strings.TrimSpace(userID) == "" || strings.TrimSpace(userName) == "" {
 		return nil, ErrInvalidMessage
 	}
 
-	session, err := s.repository.Load(ctx, strings.TrimSpace(input.SessionID))
+	session, err := s.GetSessionForUser(ctx, userID, input.SessionID)
 	if err != nil {
 		return nil, err
 	}
 
 	user := model.SessionUser{
-		ID:   strings.TrimSpace(input.UserID),
-		Name: strings.TrimSpace(input.UserName),
+		ID:   strings.TrimSpace(userID),
+		Name: strings.TrimSpace(userName),
 	}
 	session.AppendUserMessage(user, content, now)
 
