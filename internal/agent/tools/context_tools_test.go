@@ -17,6 +17,15 @@ func TestGetAgentContextToolCallBuildsContext(t *testing.T) {
 		result: agentcontext.AgentContext{
 			SessionID: "session-1",
 			Channel:   model.ChannelWeb,
+			RecentRecords: []model.HistoryRecord{
+				{
+					ID:       "user-1",
+					User:     model.SessionUser{ID: "user-1", Name: "Alice"},
+					Message:  model.Message{Content: "青稞，法师，精灵"},
+					Sequence: 1,
+					Source:   model.MessageSourceUser,
+				},
+			},
 		},
 	}
 	tool := NewGetAgentContextTool(provider)
@@ -41,6 +50,24 @@ func TestGetAgentContextToolCallBuildsContext(t *testing.T) {
 	}
 	if result.SessionID != "session-1" || result.Channel != "web" {
 		t.Fatalf("expected mapped context result, got %+v", result)
+	}
+	if len(result.RecentRecords) != 1 {
+		t.Fatalf("expected 1 recent record, got %+v", result.RecentRecords)
+	}
+	record, ok := result.RecentRecords[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected map recent record, got %T", result.RecentRecords[0])
+	}
+	user, ok := record["user"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected nested user map, got %T", record["user"])
+	}
+	message, ok := record["message"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected nested message map, got %T", record["message"])
+	}
+	if user["name"] != "Alice" || message["content"] != "青稞，法师，精灵" {
+		t.Fatalf("expected content-rich context record, got %+v", record)
 	}
 }
 

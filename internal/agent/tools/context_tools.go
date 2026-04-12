@@ -74,6 +74,13 @@ func (t *GetAgentContextTool) Call(ctx context.Context, input CallInput) (CallOu
 			"id":       result.LastRecord.ID,
 			"sequence": result.LastRecord.Sequence,
 			"source":   string(result.LastRecord.Source),
+			"user": map[string]any{
+				"id":   result.LastRecord.User.ID,
+				"name": result.LastRecord.User.Name,
+			},
+			"message": map[string]any{
+				"content": result.LastRecord.Message.Content,
+			},
 		}
 	}
 	for _, record := range result.RecentRecords {
@@ -81,6 +88,13 @@ func (t *GetAgentContextTool) Call(ctx context.Context, input CallInput) (CallOu
 			"id":       record.ID,
 			"sequence": record.Sequence,
 			"source":   string(record.Source),
+			"user": map[string]any{
+				"id":   record.User.ID,
+				"name": record.User.Name,
+			},
+			"message": map[string]any{
+				"content": record.Message.Content,
+			},
 		})
 	}
 
