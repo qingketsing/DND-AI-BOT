@@ -14,6 +14,11 @@ var (
 	ErrInvalidAgentReplyInput = errors.New("invalid agent reply input")
 )
 
+const (
+	defaultLoggedMaxSteps     = 8
+	defaultLoggedContextLimit = 40
+)
+
 // AgentService 负责调 Runtime 完成一轮 Agent 回复，并集中记录运行日志。
 type AgentService struct {
 	runner AgentRunner
@@ -60,15 +65,16 @@ func (s *AgentService) Reply(ctx context.Context, input AgentReplyInput) (AgentR
 		return AgentReplyResult{}, ErrInvalidAgentReplyInput
 	}
 
-	s.logRunStarted(input)
+	effectiveInput := normalizeAgentReplyInputForLogging(input)
+	s.logRunStarted(effectiveInput)
 
 	output, err := s.runner(ctx, input)
 	if err != nil {
-		s.logRunFailed(input, err)
+		s.logRunFailed(effectiveInput, err)
 		return AgentReplyResult{}, err
 	}
 
-	s.logRunFinished(input, output)
+	s.logRunFinished(effectiveInput, output)
 	return output, nil
 }
 
@@ -120,4 +126,14 @@ func toolNamesFromSteps(steps []AgentStep) []string {
 		names = append(names, step.ToolName)
 	}
 	return names
+}
+
+func normalizeAgentReplyInputForLogging(input AgentReplyInput) AgentReplyInput {
+	if input.MaxSteps <= 0 {
+		input.MaxSteps = defaultLoggedMaxSteps
+	}
+	if input.ContextLimit <= 0 {
+		input.ContextLimit = defaultLoggedContextLimit
+	}
+	return input
 }

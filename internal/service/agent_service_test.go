@@ -68,6 +68,34 @@ func TestAgentServiceReplyLogsSuccess(t *testing.T) {
 	}
 }
 
+func TestAgentServiceReplyLogsEffectiveDefaultsWhenUnset(t *testing.T) {
+	buffer := bytes.NewBuffer(nil)
+	logger := log.New(buffer, "", 0)
+	service := NewAgentService(func(ctx context.Context, input AgentReplyInput) (AgentReplyResult, error) {
+		_ = ctx
+		_ = input
+		return AgentReplyResult{
+			Reply: "你好，冒险者。",
+		}, nil
+	}, logger)
+
+	_, err := service.Reply(context.Background(), AgentReplyInput{
+		SessionID:   "session-1",
+		UserMessage: "hello",
+	})
+	if err != nil {
+		t.Fatalf("expected reply to succeed, got %v", err)
+	}
+
+	logOutput := buffer.String()
+	if !strings.Contains(logOutput, "max_steps=8") {
+		t.Fatalf("expected effective max steps in log, got %q", logOutput)
+	}
+	if !strings.Contains(logOutput, "context_limit=40") {
+		t.Fatalf("expected effective context limit in log, got %q", logOutput)
+	}
+}
+
 func TestAgentServiceReplyLogsFailure(t *testing.T) {
 	buffer := bytes.NewBuffer(nil)
 	logger := log.New(buffer, "", 0)
