@@ -41,6 +41,9 @@ func TestNewAppBuildsCoreServices(t *testing.T) {
 	if application.EncounterService == nil {
 		t.Fatal("expected encounter service to be initialized")
 	}
+	if application.KnowledgeWarmupService == nil {
+		t.Fatal("expected knowledge warmup service to be initialized")
+	}
 
 	if _, ok := application.Handler.(http.Handler); !ok {
 		t.Fatal("expected handler to implement http.Handler")

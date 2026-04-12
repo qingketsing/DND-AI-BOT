@@ -7,6 +7,7 @@ import (
 	"time"
 
 	agentcontext "DND-AI-BOT/internal/agent/context"
+	agentprompt "DND-AI-BOT/internal/agent/prompt"
 	agentruntime "DND-AI-BOT/internal/agent/runtime"
 	"DND-AI-BOT/internal/bootstrap"
 	basecontext "DND-AI-BOT/internal/context"
@@ -23,12 +24,13 @@ import (
 
 // App 负责承载应用初始化后的根 HTTP handler。
 type App struct {
-	Handler          http.Handler
-	AgentService     *service.AgentService
-	AuthService      *service.AuthService
-	SessionService   *service.SessionService
-	GameStateService *service.GameStateService
-	EncounterService *service.EncounterService
+	Handler                http.Handler
+	AgentService           *service.AgentService
+	AuthService            *service.AuthService
+	SessionService         *service.SessionService
+	GameStateService       *service.GameStateService
+	EncounterService       *service.EncounterService
+	KnowledgeWarmupService *service.KnowledgeWarmupService
 }
 
 // NewApp 完成仓库、服务、处理器和路由的装配。
@@ -57,11 +59,22 @@ func NewApp(deps *bootstrap.RuntimeDependencies) (*App, error) {
 		return nil, err
 	}
 	bootstrap.LogModelAdapterReady(log.Default(), agentRuntime.Config)
+	knowledgeWarmupService := service.NewKnowledgeWarmupService(
+		searchRuntime.RuleSearcher,
+		searchRuntime.LoreSearcher,
+		gameStateRepository,
+	)
 
 	agentService := service.NewAgentService(func(ctx context.Context, input service.AgentReplyInput) (service.AgentReplyResult, error) {
+		warmup, err := knowledgeWarmupService.BuildWarmup(ctx, input.SessionID)
+		if err != nil {
+			return service.AgentReplyResult{}, err
+		}
+		systemPrompt := agentprompt.ComposeSystemPrompt(input.SystemPrompt, warmup)
+
 		output, err := agentRuntime.Runtime.Run(ctx, agentruntime.RuntimeInput{
 			SessionID:    input.SessionID,
-			SystemPrompt: input.SystemPrompt,
+			SystemPrompt: systemPrompt,
 			UserMessage:  input.UserMessage,
 			MaxSteps:     input.MaxSteps,
 			ContextLimit: input.ContextLimit,
@@ -97,12 +110,13 @@ func NewApp(deps *bootstrap.RuntimeDependencies) (*App, error) {
 	encounterHandler := httpHandler.NewEncounterHandler(encounterService)
 
 	return &App{
-		Handler:          router.NewRouter(sessionHandler, gameStateHandler, encounterHandler, authHandler, authMiddleware),
-		AgentService:     agentService,
-		AuthService:      authService,
-		SessionService:   sessionService,
-		GameStateService: gameStateService,
-		EncounterService: encounterService,
+		Handler:                router.NewRouter(sessionHandler, gameStateHandler, encounterHandler, authHandler, authMiddleware),
+		AgentService:           agentService,
+		AuthService:            authService,
+		SessionService:         sessionService,
+		GameStateService:       gameStateService,
+		EncounterService:       encounterService,
+		KnowledgeWarmupService: knowledgeWarmupService,
 	}, nil
 }
 
