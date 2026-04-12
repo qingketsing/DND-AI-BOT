@@ -114,14 +114,32 @@ func TestSessionRepositoryListByUserIDDelegatesToStore(t *testing.T) {
 	}
 }
 
+func TestSessionRepositoryDeleteDeletesStoreAndCache(t *testing.T) {
+	cache := &fakeSessionCache{}
+	store := &fakeSessionStore{}
+	repo := NewCompositeSessionRepository(store, cache, CachePolicy{})
+
+	if err := repo.Delete(context.Background(), "session-1"); err != nil {
+		t.Fatalf("expected delete to succeed, got %v", err)
+	}
+	if store.deleteCalls != 1 {
+		t.Fatalf("expected store delete to be called once, got %d", store.deleteCalls)
+	}
+	if cache.deleteCalls != 1 {
+		t.Fatalf("expected cache delete to be called once, got %d", cache.deleteCalls)
+	}
+}
+
 type fakeSessionStore struct {
 	session      *model.Session
 	listSessions []*model.Session
 	getErr       error
 	listErr      error
+	deleteErr    error
 	upsertErr    error
 	getCalls     int
 	listCalls    int
+	deleteCalls  int
 	upsertCalls  int
 }
 
@@ -148,6 +166,11 @@ func (f *fakeSessionStore) ListSessionsByUserID(ctx context.Context, userID stri
 		return nil, f.listErr
 	}
 	return f.listSessions, nil
+}
+
+func (f *fakeSessionStore) DeleteSession(ctx context.Context, sessionID string) error {
+	f.deleteCalls++
+	return f.deleteErr
 }
 
 type fakeSessionCache struct {

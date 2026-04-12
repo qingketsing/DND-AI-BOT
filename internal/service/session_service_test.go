@@ -242,3 +242,41 @@ func TestSendMessageRejectsDifferentOwner(t *testing.T) {
 		t.Fatalf("expected ErrSessionForbidden, got %v", err)
 	}
 }
+
+func TestDeleteSessionDeletesOwnedSession(t *testing.T) {
+	sessionRepository := memory.NewSessionRepository()
+	service := NewSessionService(sessionRepository)
+	ctx := context.Background()
+	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
+
+	session, err := service.CreateSession(ctx, CreateSessionInput{UserID: "user-1", Channel: model.ChannelWeb}, now)
+	if err != nil {
+		t.Fatalf("expected create session to succeed, got %v", err)
+	}
+
+	if err := service.DeleteSession(ctx, "user-1", session.ID); err != nil {
+		t.Fatalf("expected delete session to succeed, got %v", err)
+	}
+
+	_, err = service.GetSessionForUser(ctx, "user-1", session.ID)
+	if !errors.Is(err, repository.ErrSessionNotFound) {
+		t.Fatalf("expected ErrSessionNotFound after delete, got %v", err)
+	}
+}
+
+func TestDeleteSessionRejectsDifferentOwner(t *testing.T) {
+	repository := memory.NewSessionRepository()
+	service := NewSessionService(repository)
+	ctx := context.Background()
+	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
+
+	session, err := service.CreateSession(ctx, CreateSessionInput{UserID: "user-1", Channel: model.ChannelWeb}, now)
+	if err != nil {
+		t.Fatalf("expected create session to succeed, got %v", err)
+	}
+
+	err = service.DeleteSession(ctx, "user-2", session.ID)
+	if !errors.Is(err, ErrSessionForbidden) {
+		t.Fatalf("expected ErrSessionForbidden, got %v", err)
+	}
+}

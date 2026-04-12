@@ -73,6 +73,22 @@ func (r *SessionRepository) ListByUserID(ctx context.Context, userID string) ([]
 	return sessions, nil
 }
 
+// Delete 删除指定会话。
+func (r *SessionRepository) Delete(ctx context.Context, sessionID string) error {
+	_ = ctx
+	if sessionID == "" {
+		return ErrEmptySessionID
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.sessions[sessionID]; !ok {
+		return ErrSessionNotFound
+	}
+	delete(r.sessions, sessionID)
+	return nil
+}
+
 // Exists 判断目标会话是否存在于仓库中。
 func (r *SessionRepository) Exists(id string) bool {
 	if id == "" {

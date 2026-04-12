@@ -179,6 +179,50 @@ func TestGetSessionReturnsForbiddenForDifferentOwner(t *testing.T) {
 	}
 }
 
+func TestDeleteSessionReturnsSuccess(t *testing.T) {
+	repository := memory.NewSessionRepository()
+	sessionService := service.NewSessionService(repository)
+	ctx := context.Background()
+	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
+	session, _ := sessionService.CreateSession(ctx, service.CreateSessionInput{UserID: "user-1", Channel: model.ChannelWeb}, now)
+	handler := NewSessionHandler(sessionService)
+
+	request := httptest.NewRequest(http.MethodDelete, "/sessions/"+session.ID, nil)
+	request = request.WithContext(middleware.WithAuthenticatedUser(request.Context(), middleware.AuthenticatedUser{
+		UserID:      "user-1",
+		DisplayName: "Alice",
+	}))
+	recorder := httptest.NewRecorder()
+
+	handler.DeleteSession(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+}
+
+func TestDeleteSessionReturnsForbiddenForDifferentOwner(t *testing.T) {
+	repository := memory.NewSessionRepository()
+	sessionService := service.NewSessionService(repository)
+	ctx := context.Background()
+	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
+	session, _ := sessionService.CreateSession(ctx, service.CreateSessionInput{UserID: "user-1", Channel: model.ChannelWeb}, now)
+	handler := NewSessionHandler(sessionService)
+
+	request := httptest.NewRequest(http.MethodDelete, "/sessions/"+session.ID, nil)
+	request = request.WithContext(middleware.WithAuthenticatedUser(request.Context(), middleware.AuthenticatedUser{
+		UserID:      "user-2",
+		DisplayName: "Bob",
+	}))
+	recorder := httptest.NewRecorder()
+
+	handler.DeleteSession(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("expected status %d, got %d", http.StatusForbidden, recorder.Code)
+	}
+}
+
 func newTestSessionHandler() *SessionHandler {
 	repository := memory.NewSessionRepository()
 	service := service.NewSessionService(repository)

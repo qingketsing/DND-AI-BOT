@@ -150,6 +150,13 @@ func (c *fakePGConn) ExecContext(ctx context.Context, query string, args []drive
 		session.History = nil
 		c.state.gameSessions[sessionID] = session
 		return driver.RowsAffected(1), nil
+	case strings.Contains(query, "DELETE FROM sessions"):
+		sessionID := args[0].Value.(string)
+		if _, ok := c.state.gameSessions[sessionID]; !ok {
+			return driver.RowsAffected(0), nil
+		}
+		delete(c.state.gameSessions, sessionID)
+		return driver.RowsAffected(1), nil
 	case strings.Contains(query, "INSERT INTO session_messages"):
 		sessionID := args[1].Value.(string)
 		session := c.state.gameSessions[sessionID]

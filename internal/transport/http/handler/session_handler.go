@@ -19,6 +19,11 @@ type SessionHandler struct {
 	service *service.SessionService
 }
 
+type successResponse struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+}
+
 // NewSessionHandler 创建会话 HTTP 处理器。
 func NewSessionHandler(service *service.SessionService) *SessionHandler {
 	return &SessionHandler{service: service}
@@ -103,6 +108,36 @@ func (h *SessionHandler) ListSessions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, dto.ToSessionListResponse(sessions))
+}
+
+// DeleteSession 处理删除会话请求。
+func (h *SessionHandler) DeleteSession(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	user, ok := middleware.UserFromContext(r.Context())
+	if !ok {
+		handleServiceError(w, service.ErrUnauthorized)
+		return
+	}
+
+	sessionID := readSessionID(r.URL.Path)
+	if sessionID == "" {
+		writeError(w, http.StatusBadRequest, "invalid_request", "session id is required")
+		return
+	}
+
+	if err := h.service.DeleteSession(r.Context(), user.UserID, sessionID); err != nil {
+		handleServiceError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, successResponse{
+		Success: true,
+		Message: "session deleted",
+	})
 }
 
 // SendMessage 处理发送消息请求。

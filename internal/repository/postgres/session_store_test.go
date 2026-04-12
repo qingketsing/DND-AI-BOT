@@ -76,3 +76,36 @@ func TestPGSessionStoreListSessionsByUserID(t *testing.T) {
 		}
 	}
 }
+
+func TestPGSessionStoreDeleteSession(t *testing.T) {
+	state := newFakePGState()
+	db := newFakePGDB(t, state)
+	store := NewPGSessionStore(db)
+
+	now := time.Date(2026, 4, 12, 10, 0, 0, 0, time.UTC)
+	session := model.NewSession("session-1", "user-1", model.ChannelWeb, now)
+	session.AppendUserMessage(model.SessionUser{ID: "user-1", Name: "Alice"}, "hello", now.Add(time.Minute))
+
+	if err := store.UpsertSession(context.Background(), session); err != nil {
+		t.Fatalf("expected upsert to succeed, got %v", err)
+	}
+	if err := store.DeleteSession(context.Background(), session.ID); err != nil {
+		t.Fatalf("expected delete session to succeed, got %v", err)
+	}
+
+	_, err := store.GetSession(context.Background(), session.ID)
+	if !errors.Is(err, repository.ErrSessionNotFound) {
+		t.Fatalf("expected ErrSessionNotFound after delete, got %v", err)
+	}
+}
+
+func TestPGSessionStoreDeleteSessionReturnsNotFound(t *testing.T) {
+	state := newFakePGState()
+	db := newFakePGDB(t, state)
+	store := NewPGSessionStore(db)
+
+	err := store.DeleteSession(context.Background(), "missing")
+	if !errors.Is(err, repository.ErrSessionNotFound) {
+		t.Fatalf("expected ErrSessionNotFound, got %v", err)
+	}
+}

@@ -95,6 +95,15 @@ func (s *SessionService) GetSessionForUser(ctx context.Context, userID string, s
 	return session, nil
 }
 
+// DeleteSession 删除指定用户拥有的会话。
+func (s *SessionService) DeleteSession(ctx context.Context, userID string, sessionID string) error {
+	if _, err := s.GetSessionForUser(ctx, userID, sessionID); err != nil {
+		return err
+	}
+
+	return s.repository.Delete(ctx, strings.TrimSpace(sessionID))
+}
+
 // SendMessage 将用户消息写入会话，并通过 AgentService 或 mock 逻辑生成回复。
 func (s *SessionService) SendMessage(ctx context.Context, userID string, userName string, input SendMessageInput, now time.Time) (*model.Session, error) {
 	content := strings.TrimSpace(input.Content)

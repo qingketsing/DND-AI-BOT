@@ -36,6 +36,10 @@ func NewRouter(
 	})))
 
 	mux.Handle("/sessions/", authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			sessionHandler.DeleteSession(w, r)
+			return
+		}
 		if strings.HasSuffix(r.URL.Path, "/messages") {
 			sessionHandler.SendMessage(w, r)
 			return

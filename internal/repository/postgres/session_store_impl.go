@@ -189,3 +189,30 @@ func (s *PGSessionStore) ListSessionsByUserID(ctx context.Context, userID string
 
 	return sessions, nil
 }
+
+// DeleteSession 删除指定会话及其消息历史。
+func (s *PGSessionStore) DeleteSession(ctx context.Context, sessionID string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM session_messages WHERE session_id = $1`, sessionID); err != nil {
+		return err
+	}
+
+	result, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE id = $1`, sessionID)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return repository.ErrSessionNotFound
+	}
+
+	return tx.Commit()
+}

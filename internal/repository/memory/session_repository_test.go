@@ -121,3 +121,31 @@ func TestSessionRepositoryListByUserID(t *testing.T) {
 		}
 	}
 }
+
+func TestSessionRepositoryDelete(t *testing.T) {
+	repository := NewSessionRepository()
+	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
+	session := model.NewSession("session-1", "user-1", model.ChannelWeb, now)
+
+	if err := repository.Save(context.Background(), session); err != nil {
+		t.Fatalf("expected save to succeed, got %v", err)
+	}
+
+	if err := repository.Delete(context.Background(), session.ID); err != nil {
+		t.Fatalf("expected delete to succeed, got %v", err)
+	}
+
+	_, err := repository.Load(context.Background(), session.ID)
+	if !errors.Is(err, ErrSessionNotFound) {
+		t.Fatalf("expected ErrSessionNotFound after delete, got %v", err)
+	}
+}
+
+func TestSessionRepositoryDeleteMissingSession(t *testing.T) {
+	repository := NewSessionRepository()
+
+	err := repository.Delete(context.Background(), "missing")
+	if !errors.Is(err, ErrSessionNotFound) {
+		t.Fatalf("expected ErrSessionNotFound, got %v", err)
+	}
+}

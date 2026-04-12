@@ -84,6 +84,17 @@ func (r *CompositeSessionRepository) ListByUserID(ctx context.Context, userID st
 	return r.store.ListSessionsByUserID(ctx, userID)
 }
 
+// Delete 删除指定会话，并清理缓存。
+func (r *CompositeSessionRepository) Delete(ctx context.Context, sessionID string) error {
+	if err := r.store.DeleteSession(ctx, sessionID); err != nil {
+		return err
+	}
+	if r.cache != nil {
+		_ = r.cache.Delete(ctx, sessionID)
+	}
+	return nil
+}
+
 // singleflightGroup 是最小实现的单飞结构，用于防止缓存击穿时重复回源。
 type singleflightGroup struct {
 	mu    sync.Mutex
