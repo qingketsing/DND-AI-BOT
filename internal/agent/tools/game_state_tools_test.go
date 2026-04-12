@@ -74,6 +74,42 @@ func TestUpdateStatsToolCallMapsArgs(t *testing.T) {
 	}
 }
 
+func TestCreateCharacterToolCallMapsArgs(t *testing.T) {
+	svc := &fakeGameStateToolService{result: newToolGameState()}
+	tool := NewCreateCharacterTool(svc)
+	now := time.Date(2026, 4, 12, 14, 0, 0, 0, time.UTC)
+
+	_, err := tool.Call(context.Background(), CallInput{
+		SessionID: "session-1",
+		Raw: json.RawMessage(`{
+			"name":"青稞",
+			"race":"精灵",
+			"class":"法师",
+			"background_summary":"来自 the city 的年轻法师",
+			"level":1,
+			"stats":{"str":8,"dex":14,"con":13,"int":16,"wis":12,"cha":10},
+			"inventory":[{"id":"inv-1","item_id":"staff","name":"法杖","quantity":1}],
+			"scene":"the city 的旅店房间"
+		}`),
+		Now: now,
+	})
+	if err != nil {
+		t.Fatalf("expected call to succeed, got %v", err)
+	}
+	if svc.createCharacterInput.Name != "青稞" || svc.createCharacterInput.Class != "法师" || svc.createCharacterInput.Race != "精灵" {
+		t.Fatalf("expected create character identity fields to be mapped, got %+v", svc.createCharacterInput)
+	}
+	if svc.createCharacterInput.Stats.INT != 16 || svc.createCharacterInput.Scene != "the city 的旅店房间" {
+		t.Fatalf("expected create character stats and scene to be mapped, got %+v", svc.createCharacterInput)
+	}
+	if len(svc.createCharacterInput.Inventory) != 1 || svc.createCharacterInput.Inventory[0].ItemID != "staff" {
+		t.Fatalf("expected create character inventory to be mapped, got %+v", svc.createCharacterInput.Inventory)
+	}
+	if !svc.createCharacterNow.Equal(now) {
+		t.Fatalf("expected create character call time %v, got %v", now, svc.createCharacterNow)
+	}
+}
+
 func TestAddItemToolCallMapsArgs(t *testing.T) {
 	svc := &fakeGameStateToolService{result: newToolGameState()}
 	tool := NewAddItemTool(svc)
@@ -192,6 +228,8 @@ type fakeGameStateToolService struct {
 	result           *state.GameState
 	err              error
 	getSessionID     string
+	createCharacterInput service.CreateCharacterInput
+	createCharacterNow   time.Time
 	updateStatsInput service.UpdateStatsInput
 	updateStatsNow   time.Time
 	addItemInput     service.AddItemInput
@@ -221,6 +259,13 @@ func (f *fakeGameStateToolService) Create(ctx context.Context, input service.Cre
 	_ = ctx
 	_ = input
 	_ = now
+	return f.result, f.err
+}
+
+func (f *fakeGameStateToolService) CreateCharacter(ctx context.Context, input service.CreateCharacterInput, now time.Time) (*state.GameState, error) {
+	_ = ctx
+	f.createCharacterInput = input
+	f.createCharacterNow = now
 	return f.result, f.err
 }
 

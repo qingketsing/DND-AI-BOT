@@ -20,6 +20,7 @@ func RegisterDefaultTools(registry Registry, deps RegisterDependencies) error {
 	tools := []Tool{
 		NewGetAgentContextTool(deps.ContextProvider),
 		NewGetGameStateTool(deps.GameStateService),
+		NewCreateCharacterTool(deps.GameStateService),
 		NewUpdateStatsTool(deps.GameStateService),
 		NewAddItemTool(deps.GameStateService),
 		NewRemoveItemTool(deps.GameStateService),

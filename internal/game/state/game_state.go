@@ -4,12 +4,15 @@ import "time"
 
 // PlayerState 表示玩家当前可持久化的核心进度。
 type PlayerState struct {
-	Name      string
-	Level     int
-	Gold      int
-	Stats     CharacterStats
-	Inventory []InventoryItem
-	Quests    []QuestProgress
+	Name              string
+	Race              string
+	Class             string
+	BackgroundSummary string
+	Level             int
+	Gold              int
+	Stats             CharacterStats
+	Inventory         []InventoryItem
+	Quests            []QuestProgress
 }
 
 // GameState 表示一局游戏的当前最小状态。

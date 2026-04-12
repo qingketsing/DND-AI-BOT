@@ -31,6 +31,19 @@ type CreateGameStateInput struct {
 	Player    state.PlayerState
 }
 
+// CreateCharacterInput 定义一次性初始化角色与场景所需的输入。
+type CreateCharacterInput struct {
+	SessionID         string
+	Name              string
+	Race              string
+	Class             string
+	BackgroundSummary string
+	Level             int
+	Stats             state.CharacterStats
+	Inventory         []state.InventoryItem
+	Scene             string
+}
+
 // UpdateStatsInput 定义整体更新六维属性所需的输入。
 type UpdateStatsInput struct {
 	SessionID string
@@ -96,6 +109,42 @@ func (s *GameStateService) Create(ctx context.Context, input CreateGameStateInpu
 // GetBySessionID 按会话 ID 读取游戏进度。
 func (s *GameStateService) GetBySessionID(ctx context.Context, sessionID string) (*state.GameState, error) {
 	return s.repository.LoadBySessionID(ctx, strings.TrimSpace(sessionID))
+}
+
+// CreateCharacter 一次性初始化当前会话的角色和起始场景；若状态不存在则自动创建。
+func (s *GameStateService) CreateCharacter(ctx context.Context, input CreateCharacterInput, now time.Time) (*state.GameState, error) {
+	sessionID := strings.TrimSpace(input.SessionID)
+	if sessionID == "" || strings.TrimSpace(input.Name) == "" || strings.TrimSpace(input.Class) == "" {
+		return nil, ErrInvalidGameState
+	}
+
+	gameState, err := s.repository.LoadBySessionID(ctx, sessionID)
+	if err != nil {
+		if !errors.Is(err, repository.ErrGameStateNotFound) {
+			return nil, err
+		}
+
+		gameState = state.NewGameState("state-"+sessionID, sessionID, state.PlayerState{}, now)
+	}
+
+	gameState.Player = state.PlayerState{
+		Name:              strings.TrimSpace(input.Name),
+		Race:              strings.TrimSpace(input.Race),
+		Class:             strings.TrimSpace(input.Class),
+		BackgroundSummary: strings.TrimSpace(input.BackgroundSummary),
+		Level:             input.Level,
+		Gold:              gameState.Player.Gold,
+		Stats:             input.Stats,
+		Inventory:         append([]state.InventoryItem(nil), input.Inventory...),
+		Quests:            append([]state.QuestProgress(nil), gameState.Player.Quests...),
+	}
+	gameState.SetCurrentScene(strings.TrimSpace(input.Scene), now)
+	gameState.UpdatedAt = now
+	if err := s.repository.Save(ctx, gameState); err != nil {
+		return nil, err
+	}
+
+	return gameState, nil
 }
 
 // UpdateStats 整体替换玩家当前六维属性。

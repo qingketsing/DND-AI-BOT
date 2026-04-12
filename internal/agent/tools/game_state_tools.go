@@ -12,6 +12,7 @@ import (
 
 type gameStateToolService interface {
 	GetBySessionID(ctx context.Context, sessionID string) (*state.GameState, error)
+	CreateCharacter(ctx context.Context, input service.CreateCharacterInput, now time.Time) (*state.GameState, error)
 	UpdateStats(ctx context.Context, input service.UpdateStatsInput, now time.Time) (*state.GameState, error)
 	AddItem(ctx context.Context, input service.AddItemInput, now time.Time) (*state.GameState, error)
 	RemoveItem(ctx context.Context, input service.RemoveItemInput, now time.Time) (*state.GameState, error)
@@ -54,6 +55,17 @@ type setSceneArgs struct {
 	Scene string `json:"scene"`
 }
 
+type createCharacterArgs struct {
+	Name              string          `json:"name"`
+	Race              string          `json:"race"`
+	Class             string          `json:"class"`
+	BackgroundSummary string          `json:"background_summary"`
+	Level             int             `json:"level"`
+	Stats             updateStatsArgs `json:"stats"`
+	Inventory         []addItemArgs   `json:"inventory"`
+	Scene             string          `json:"scene"`
+}
+
 type upsertQuestArgs struct {
 	ID          string `json:"id"`
 	Title       string `json:"title"`
@@ -87,6 +99,73 @@ func (t *GetGameStateTool) Call(ctx context.Context, input CallInput) (CallOutpu
 		}
 
 		gameState = state.NewGameState("state-"+input.SessionID, input.SessionID, state.PlayerState{}, input.Now)
+	}
+	return newToolOutput(t.Spec().Name, gameState), nil
+}
+
+// CreateCharacterTool 用于一次性初始化角色和起始场景。
+type CreateCharacterTool struct{ service gameStateToolService }
+
+// NewCreateCharacterTool 创建角色初始化工具。
+func NewCreateCharacterTool(service gameStateToolService) *CreateCharacterTool {
+	return &CreateCharacterTool{service: service}
+}
+
+// Spec 返回角色初始化工具的元信息描述。
+func (t *CreateCharacterTool) Spec() ToolSpec {
+	return ToolSpec{
+		Name:        "create_character",
+		Description: "初始化当前会话的角色身份、属性、初始装备和起始场景",
+		InputSchema: objectSchema(map[string]any{
+			"name":               map[string]any{"type": "string"},
+			"race":               map[string]any{"type": "string"},
+			"class":              map[string]any{"type": "string"},
+			"background_summary": map[string]any{"type": "string"},
+			"level":              map[string]any{"type": "integer"},
+			"stats":              map[string]any{"type": "object"},
+			"inventory":          map[string]any{"type": "array"},
+			"scene":              map[string]any{"type": "string"},
+		}, "name", "class", "level", "stats"),
+	}
+}
+
+// Call 解析角色参数并初始化当前会话的角色状态。
+func (t *CreateCharacterTool) Call(ctx context.Context, input CallInput) (CallOutput, error) {
+	var args createCharacterArgs
+	if err := decodeToolInput(input.Raw, &args); err != nil {
+		return CallOutput{}, err
+	}
+
+	inventory := make([]state.InventoryItem, 0, len(args.Inventory))
+	for _, item := range args.Inventory {
+		inventory = append(inventory, state.InventoryItem{
+			ID:       item.ID,
+			ItemID:   item.ItemID,
+			Name:     item.Name,
+			Quantity: item.Quantity,
+		})
+	}
+
+	gameState, err := t.service.CreateCharacter(ctx, service.CreateCharacterInput{
+		SessionID:         input.SessionID,
+		Name:              args.Name,
+		Race:              args.Race,
+		Class:             args.Class,
+		BackgroundSummary: args.BackgroundSummary,
+		Level:             args.Level,
+		Stats: state.CharacterStats{
+			STR: args.Stats.STR,
+			DEX: args.Stats.DEX,
+			CON: args.Stats.CON,
+			INT: args.Stats.INT,
+			WIS: args.Stats.WIS,
+			CHA: args.Stats.CHA,
+		},
+		Inventory: inventory,
+		Scene:     args.Scene,
+	}, input.Now)
+	if err != nil {
+		return CallOutput{}, err
 	}
 	return newToolOutput(t.Spec().Name, gameState), nil
 }

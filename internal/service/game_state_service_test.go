@@ -74,6 +74,42 @@ func TestUpdateStatsReplacesPlayerStats(t *testing.T) {
 	}
 }
 
+func TestCreateCharacterInitializesNewStateWhenMissing(t *testing.T) {
+	repo := newFakeGameStateRepository()
+	service := NewGameStateService(repo)
+	ctx := context.Background()
+	now := time.Date(2026, 4, 12, 12, 0, 0, 0, time.UTC)
+
+	gameState, err := service.CreateCharacter(ctx, CreateCharacterInput{
+		SessionID:         "session-1",
+		Name:              "青稞",
+		Race:              "精灵",
+		Class:             "法师",
+		BackgroundSummary: "来自 the city 的年轻法师",
+		Level:             1,
+		Stats:             state.CharacterStats{STR: 8, DEX: 14, CON: 13, INT: 16, WIS: 12, CHA: 10},
+		Inventory: []state.InventoryItem{
+			{ID: "inv-1", ItemID: "staff", Name: "法杖", Quantity: 1},
+		},
+		Scene: "the city 的旅店房间",
+	}, now)
+	if err != nil {
+		t.Fatalf("expected create character to succeed, got %v", err)
+	}
+	if gameState.ID != "state-session-1" {
+		t.Fatalf("expected game state id %q, got %q", "state-session-1", gameState.ID)
+	}
+	if gameState.Player.Name != "青稞" || gameState.Player.Class != "法师" || gameState.Player.Race != "精灵" {
+		t.Fatalf("expected character identity fields to be initialized, got %+v", gameState.Player)
+	}
+	if gameState.CurrentScene != "the city 的旅店房间" {
+		t.Fatalf("expected scene to be initialized, got %q", gameState.CurrentScene)
+	}
+	if len(gameState.Player.Inventory) != 1 || gameState.Player.Inventory[0].ItemID != "staff" {
+		t.Fatalf("expected inventory to be initialized, got %+v", gameState.Player.Inventory)
+	}
+}
+
 func TestAddItemUpdatesInventory(t *testing.T) {
 	repo := newFakeGameStateRepository()
 	service := NewGameStateService(repo)

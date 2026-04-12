@@ -16,3 +16,9 @@ func TestDefaultSystemPromptRequiresAgentContextForSessionFacts(t *testing.T) {
 		t.Fatalf("expected prompt to mention get_agent_context for session facts, got %q", DefaultSystemPrompt)
 	}
 }
+
+func TestDefaultSystemPromptRequiresCreateCharacterForCharacterCreation(t *testing.T) {
+	if !strings.Contains(DefaultSystemPrompt, "create_character") {
+		t.Fatalf("expected prompt to mention create_character for character creation, got %q", DefaultSystemPrompt)
+	}
+}
