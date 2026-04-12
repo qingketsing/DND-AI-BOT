@@ -13,6 +13,7 @@ import (
 type gameStateToolService interface {
 	GetBySessionID(ctx context.Context, sessionID string) (*state.GameState, error)
 	CreateCharacter(ctx context.Context, input service.CreateCharacterInput, now time.Time) (*state.GameState, error)
+	UpsertCharacterDraft(ctx context.Context, input service.UpsertCharacterDraftInput, now time.Time) (*state.GameState, error)
 	UpdateStats(ctx context.Context, input service.UpdateStatsInput, now time.Time) (*state.GameState, error)
 	AddItem(ctx context.Context, input service.AddItemInput, now time.Time) (*state.GameState, error)
 	RemoveItem(ctx context.Context, input service.RemoveItemInput, now time.Time) (*state.GameState, error)
@@ -64,6 +65,15 @@ type createCharacterArgs struct {
 	Stats             updateStatsArgs `json:"stats"`
 	Inventory         []addItemArgs   `json:"inventory"`
 	Scene             string          `json:"scene"`
+}
+
+type upsertCharacterDraftArgs struct {
+	Name          string   `json:"name"`
+	Race          string   `json:"race"`
+	Class         string   `json:"class"`
+	Level         *int     `json:"level"`
+	AbilityMethod string   `json:"ability_method"`
+	PendingFields []string `json:"pending_fields"`
 }
 
 type upsertQuestArgs struct {
@@ -163,6 +173,52 @@ func (t *CreateCharacterTool) Call(ctx context.Context, input CallInput) (CallOu
 		},
 		Inventory: inventory,
 		Scene:     args.Scene,
+	}, input.Now)
+	if err != nil {
+		return CallOutput{}, err
+	}
+	return newToolOutput(t.Spec().Name, gameState), nil
+}
+
+// UpsertCharacterDraftTool 用于在多轮对话中保存角色创建草稿。
+type UpsertCharacterDraftTool struct{ service gameStateToolService }
+
+// NewUpsertCharacterDraftTool 创建角色草稿更新工具。
+func NewUpsertCharacterDraftTool(service gameStateToolService) *UpsertCharacterDraftTool {
+	return &UpsertCharacterDraftTool{service: service}
+}
+
+// Spec 返回角色草稿更新工具的元信息描述。
+func (t *UpsertCharacterDraftTool) Spec() ToolSpec {
+	return ToolSpec{
+		Name:        "upsert_character_draft",
+		Description: "增量保存当前会话中的角色创建草稿，保留已收集的角色字段",
+		InputSchema: objectSchema(map[string]any{
+			"name":           map[string]any{"type": "string"},
+			"race":           map[string]any{"type": "string"},
+			"class":          map[string]any{"type": "string"},
+			"level":          map[string]any{"type": "integer"},
+			"ability_method": map[string]any{"type": "string"},
+			"pending_fields": map[string]any{"type": "array"},
+		}),
+	}
+}
+
+// Call 解析草稿参数并增量写入当前会话的角色草稿。
+func (t *UpsertCharacterDraftTool) Call(ctx context.Context, input CallInput) (CallOutput, error) {
+	var args upsertCharacterDraftArgs
+	if err := decodeToolInput(input.Raw, &args); err != nil {
+		return CallOutput{}, err
+	}
+
+	gameState, err := t.service.UpsertCharacterDraft(ctx, service.UpsertCharacterDraftInput{
+		SessionID:     input.SessionID,
+		Name:          args.Name,
+		Race:          args.Race,
+		Class:         args.Class,
+		Level:         args.Level,
+		AbilityMethod: args.AbilityMethod,
+		PendingFields: args.PendingFields,
 	}, input.Now)
 	if err != nil {
 		return CallOutput{}, err

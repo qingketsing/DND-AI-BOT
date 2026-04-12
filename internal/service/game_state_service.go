@@ -44,6 +44,17 @@ type CreateCharacterInput struct {
 	Scene             string
 }
 
+// UpsertCharacterDraftInput 定义增量写入角色创建草稿所需的输入。
+type UpsertCharacterDraftInput struct {
+	SessionID     string
+	Name          string
+	Race          string
+	Class         string
+	Level         *int
+	AbilityMethod string
+	PendingFields []string
+}
+
 // UpdateStatsInput 定义整体更新六维属性所需的输入。
 type UpdateStatsInput struct {
 	SessionID string
@@ -132,6 +143,7 @@ func (s *GameStateService) CreateCharacter(ctx context.Context, input CreateChar
 		Race:              strings.TrimSpace(input.Race),
 		Class:             strings.TrimSpace(input.Class),
 		BackgroundSummary: strings.TrimSpace(input.BackgroundSummary),
+		Draft:             nil,
 		Level:             input.Level,
 		Gold:              gameState.Player.Gold,
 		Stats:             input.Stats,
@@ -144,6 +156,53 @@ func (s *GameStateService) CreateCharacter(ctx context.Context, input CreateChar
 		return nil, err
 	}
 
+	return gameState, nil
+}
+
+// UpsertCharacterDraft 增量写入角色创建草稿，在多轮对话中保留已收集字段。
+func (s *GameStateService) UpsertCharacterDraft(ctx context.Context, input UpsertCharacterDraftInput, now time.Time) (*state.GameState, error) {
+	sessionID := strings.TrimSpace(input.SessionID)
+	if sessionID == "" {
+		return nil, ErrInvalidGameState
+	}
+
+	gameState, err := s.repository.LoadBySessionID(ctx, sessionID)
+	if err != nil {
+		if !errors.Is(err, repository.ErrGameStateNotFound) {
+			return nil, err
+		}
+		gameState = state.NewGameState("state-"+sessionID, sessionID, state.PlayerState{}, now)
+	}
+
+	draft := &state.CharacterDraft{}
+	if gameState.Player.Draft != nil {
+		existing := *gameState.Player.Draft
+		draft = &existing
+	}
+	if value := strings.TrimSpace(input.Name); value != "" {
+		draft.Name = value
+	}
+	if value := strings.TrimSpace(input.Race); value != "" {
+		draft.Race = value
+	}
+	if value := strings.TrimSpace(input.Class); value != "" {
+		draft.Class = value
+	}
+	if input.Level != nil {
+		draft.Level = *input.Level
+	}
+	if value := strings.TrimSpace(input.AbilityMethod); value != "" {
+		draft.AbilityMethod = value
+	}
+	if input.PendingFields != nil {
+		draft.PendingFields = append([]string(nil), input.PendingFields...)
+	}
+
+	gameState.Player.Draft = draft
+	gameState.UpdatedAt = now
+	if err := s.repository.Save(ctx, gameState); err != nil {
+		return nil, err
+	}
 	return gameState, nil
 }
 

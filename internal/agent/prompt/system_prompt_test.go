@@ -43,3 +43,9 @@ func TestDefaultSystemPromptResolvesStateConflictWithContextFirst(t *testing.T) 
 		t.Fatalf("expected prompt to mention state conflict resolution, got %q", DefaultSystemPrompt)
 	}
 }
+
+func TestDefaultSystemPromptRequiresDraftUpdatesForPartialCharacterInfo(t *testing.T) {
+	if !strings.Contains(DefaultSystemPrompt, "upsert_character_draft") {
+		t.Fatalf("expected prompt to mention upsert_character_draft for partial character info, got %q", DefaultSystemPrompt)
+	}
+}

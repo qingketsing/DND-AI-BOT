@@ -110,6 +110,39 @@ func TestCreateCharacterToolCallMapsArgs(t *testing.T) {
 	}
 }
 
+func TestUpsertCharacterDraftToolCallMapsArgs(t *testing.T) {
+	svc := &fakeGameStateToolService{result: newToolGameState()}
+	tool := NewUpsertCharacterDraftTool(svc)
+	now := time.Date(2026, 4, 12, 14, 10, 0, 0, time.UTC)
+
+	_, err := tool.Call(context.Background(), CallInput{
+		SessionID: "session-1",
+		Raw: json.RawMessage(`{
+			"name":"青稞",
+			"race":"精灵",
+			"class":"法师",
+			"ability_method":"standard_array",
+			"pending_fields":["level","stats_assignment"]
+		}`),
+		Now: now,
+	})
+	if err != nil {
+		t.Fatalf("expected call to succeed, got %v", err)
+	}
+	if svc.upsertCharacterDraftInput.Name != "青稞" || svc.upsertCharacterDraftInput.Class != "法师" {
+		t.Fatalf("expected draft identity fields to be mapped, got %+v", svc.upsertCharacterDraftInput)
+	}
+	if svc.upsertCharacterDraftInput.AbilityMethod != "standard_array" {
+		t.Fatalf("expected ability method to be mapped, got %+v", svc.upsertCharacterDraftInput)
+	}
+	if len(svc.upsertCharacterDraftInput.PendingFields) != 2 {
+		t.Fatalf("expected pending fields to be mapped, got %+v", svc.upsertCharacterDraftInput.PendingFields)
+	}
+	if !svc.upsertCharacterDraftNow.Equal(now) {
+		t.Fatalf("expected draft call time %v, got %v", now, svc.upsertCharacterDraftNow)
+	}
+}
+
 func TestAddItemToolCallMapsArgs(t *testing.T) {
 	svc := &fakeGameStateToolService{result: newToolGameState()}
 	tool := NewAddItemTool(svc)
@@ -230,6 +263,8 @@ type fakeGameStateToolService struct {
 	getSessionID     string
 	createCharacterInput service.CreateCharacterInput
 	createCharacterNow   time.Time
+	upsertCharacterDraftInput service.UpsertCharacterDraftInput
+	upsertCharacterDraftNow   time.Time
 	updateStatsInput service.UpdateStatsInput
 	updateStatsNow   time.Time
 	addItemInput     service.AddItemInput
@@ -266,6 +301,13 @@ func (f *fakeGameStateToolService) CreateCharacter(ctx context.Context, input se
 	_ = ctx
 	f.createCharacterInput = input
 	f.createCharacterNow = now
+	return f.result, f.err
+}
+
+func (f *fakeGameStateToolService) UpsertCharacterDraft(ctx context.Context, input service.UpsertCharacterDraftInput, now time.Time) (*state.GameState, error) {
+	_ = ctx
+	f.upsertCharacterDraftInput = input
+	f.upsertCharacterDraftNow = now
 	return f.result, f.err
 }
 

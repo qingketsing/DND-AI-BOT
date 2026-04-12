@@ -110,6 +110,47 @@ func TestCreateCharacterInitializesNewStateWhenMissing(t *testing.T) {
 	}
 }
 
+func TestUpsertCharacterDraftMergesPartialFieldsAcrossTurns(t *testing.T) {
+	repo := newFakeGameStateRepository()
+	service := NewGameStateService(repo)
+	ctx := context.Background()
+	now := time.Date(2026, 4, 12, 13, 0, 0, 0, time.UTC)
+
+	updated, err := service.UpsertCharacterDraft(ctx, UpsertCharacterDraftInput{
+		SessionID: "session-1",
+		Name:      "青稞",
+		Race:      "精灵",
+		Class:     "法师",
+	}, now)
+	if err != nil {
+		t.Fatalf("expected first draft upsert to succeed, got %v", err)
+	}
+	if updated.Player.Draft == nil || updated.Player.Draft.Name != "青稞" || updated.Player.Draft.Class != "法师" {
+		t.Fatalf("expected initial character draft, got %+v", updated.Player.Draft)
+	}
+
+	updated, err = service.UpsertCharacterDraft(ctx, UpsertCharacterDraftInput{
+		SessionID:      "session-1",
+		AbilityMethod:  "standard_array",
+		PendingFields:  []string{"level", "stats_assignment"},
+	}, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("expected second draft upsert to succeed, got %v", err)
+	}
+	if updated.Player.Draft == nil {
+		t.Fatal("expected draft to remain present")
+	}
+	if updated.Player.Draft.Name != "青稞" || updated.Player.Draft.Race != "精灵" || updated.Player.Draft.Class != "法师" {
+		t.Fatalf("expected previous identity fields to be preserved, got %+v", updated.Player.Draft)
+	}
+	if updated.Player.Draft.AbilityMethod != "standard_array" {
+		t.Fatalf("expected ability method to be updated, got %+v", updated.Player.Draft)
+	}
+	if len(updated.Player.Draft.PendingFields) != 2 {
+		t.Fatalf("expected pending fields to be updated, got %+v", updated.Player.Draft.PendingFields)
+	}
+}
+
 func TestAddItemUpdatesInventory(t *testing.T) {
 	repo := newFakeGameStateRepository()
 	service := NewGameStateService(repo)

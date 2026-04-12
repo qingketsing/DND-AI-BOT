@@ -8,6 +8,7 @@ type PlayerState struct {
 	Race              string
 	Class             string
 	BackgroundSummary string
+	Draft             *CharacterDraft
 	Level             int
 	Gold              int
 	Stats             CharacterStats
