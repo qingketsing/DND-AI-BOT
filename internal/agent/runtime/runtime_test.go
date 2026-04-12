@@ -175,12 +175,20 @@ func TestRuntimeRunReturnsStepLimitExceeded(t *testing.T) {
 			{ToolRequest: &ToolRequest{Name: "search_rules", Input: json.RawMessage(`{"query":"潜行"}`)}},
 			{ToolRequest: &ToolRequest{Name: "search_rules", Input: json.RawMessage(`{"query":"潜行"}`)}},
 			{ToolRequest: &ToolRequest{Name: "search_rules", Input: json.RawMessage(`{"query":"潜行"}`)}},
+			{ToolRequest: &ToolRequest{Name: "search_rules", Input: json.RawMessage(`{"query":"潜行"}`)}},
+			{ToolRequest: &ToolRequest{Name: "search_rules", Input: json.RawMessage(`{"query":"潜行"}`)}},
+			{ToolRequest: &ToolRequest{Name: "search_rules", Input: json.RawMessage(`{"query":"潜行"}`)}},
+			{ToolRequest: &ToolRequest{Name: "search_rules", Input: json.RawMessage(`{"query":"潜行"}`)}},
 		},
 	}
 	runtime := NewRuntime(model, &fakeRegistry{
 		specs: []tools.ToolSpec{{Name: "search_rules", Description: "检索规则"}},
 	}, &fakeExecutor{
 		outputs: []tools.CallOutput{
+			{ToolName: "search_rules", Content: map[string]any{"hits": 1}},
+			{ToolName: "search_rules", Content: map[string]any{"hits": 1}},
+			{ToolName: "search_rules", Content: map[string]any{"hits": 1}},
+			{ToolName: "search_rules", Content: map[string]any{"hits": 1}},
 			{ToolName: "search_rules", Content: map[string]any{"hits": 1}},
 			{ToolName: "search_rules", Content: map[string]any{"hits": 1}},
 			{ToolName: "search_rules", Content: map[string]any{"hits": 1}},
@@ -195,8 +203,19 @@ func TestRuntimeRunReturnsStepLimitExceeded(t *testing.T) {
 	if !errors.Is(err, ErrStepLimitExceeded) {
 		t.Fatalf("expected ErrStepLimitExceeded, got %v", err)
 	}
-	if len(model.inputs) != 4 {
-		t.Fatalf("expected default max steps to be 4, got %d model calls", len(model.inputs))
+	if len(model.inputs) != 8 {
+		t.Fatalf("expected default max steps to be 8, got %d model calls", len(model.inputs))
+	}
+}
+
+func TestNormalizeRuntimeInputUsesLargerDefaultContextLimit(t *testing.T) {
+	normalized := normalizeRuntimeInput(RuntimeInput{
+		SessionID:   "session-1",
+		UserMessage: "当前设定是什么？",
+	})
+
+	if normalized.ContextLimit != 40 {
+		t.Fatalf("expected default context limit 40, got %d", normalized.ContextLimit)
 	}
 }
 

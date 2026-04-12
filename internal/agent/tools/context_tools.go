@@ -6,6 +6,8 @@ import (
 	agentcontext "DND-AI-BOT/internal/agent/context"
 )
 
+const defaultAgentContextLimit = 40
+
 type contextToolProvider interface {
 	BuildContext(ctx context.Context, sessionID string, limit int) (agentcontext.AgentContext, error)
 }
@@ -54,7 +56,7 @@ func (t *GetAgentContextTool) Call(ctx context.Context, input CallInput) (CallOu
 		return CallOutput{}, err
 	}
 	if args.Limit <= 0 {
-		args.Limit = 10
+		args.Limit = defaultAgentContextLimit
 	}
 
 	result, err := t.provider.BuildContext(ctx, input.SessionID, args.Limit)

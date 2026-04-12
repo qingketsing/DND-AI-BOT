@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	defaultMaxSteps   = 4
-	defaultContextMax = 10
+	defaultMaxSteps   = 8
+	defaultContextMax = 40
 )
 
 // Runtime 负责串联模型调用、工具执行和步骤积累。

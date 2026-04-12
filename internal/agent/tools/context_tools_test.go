@@ -56,6 +56,27 @@ func TestGetAgentContextToolCallRejectsInvalidInput(t *testing.T) {
 	}
 }
 
+func TestGetAgentContextToolCallUsesLargerDefaultLimit(t *testing.T) {
+	provider := &fakeContextProvider{
+		result: agentcontext.AgentContext{
+			SessionID: "session-1",
+			Channel:   model.ChannelWeb,
+		},
+	}
+	tool := NewGetAgentContextTool(provider)
+
+	_, err := tool.Call(context.Background(), CallInput{
+		SessionID: "session-1",
+		Raw:       json.RawMessage(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("expected call to succeed, got %v", err)
+	}
+	if provider.limit != 40 {
+		t.Fatalf("expected default limit 40, got %d", provider.limit)
+	}
+}
+
 type fakeContextProvider struct {
 	result    agentcontext.AgentContext
 	err       error
