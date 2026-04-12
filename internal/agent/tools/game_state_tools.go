@@ -2,9 +2,11 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"DND-AI-BOT/internal/game/state"
+	"DND-AI-BOT/internal/repository"
 	"DND-AI-BOT/internal/service"
 )
 
@@ -80,7 +82,11 @@ func (t *GetGameStateTool) Spec() ToolSpec {
 func (t *GetGameStateTool) Call(ctx context.Context, input CallInput) (CallOutput, error) {
 	gameState, err := t.service.GetBySessionID(ctx, input.SessionID)
 	if err != nil {
-		return CallOutput{}, err
+		if !errors.Is(err, repository.ErrGameStateNotFound) {
+			return CallOutput{}, err
+		}
+
+		gameState = state.NewGameState("state-"+input.SessionID, input.SessionID, state.PlayerState{}, input.Now)
 	}
 	return newToolOutput(t.Spec().Name, gameState), nil
 }

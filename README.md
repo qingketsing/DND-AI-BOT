@@ -26,7 +26,7 @@
 
 当前版本为V0版本，正在持续更新中...
 
-- Web端即可游玩：支持直接加入网站进行游戏，注册后即可游戏
+- Web端即可游玩：支持直接加入网站进行游戏，注册后即可游戏。前端页面详见https://github.com/qingketsing/DND_fe
 - 语句向量化检索：通过对原设定中相应部分的准确判定，降低tokens消耗，显著提高了回复准确率
 - 持久化存储：在退出或长时间不游戏后自动退出，但并不会清空进度，具备持久化存储的功能
 - QQ bot引入：已经在排期了！马上就会有！
@@ -37,7 +37,6 @@
 - PostgreSQL
 - Redis
 - pgvector
-- Next.js
 
 ## File Tree Introduction
 

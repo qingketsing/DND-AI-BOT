@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"DND-AI-BOT/internal/game/state"
+	"DND-AI-BOT/internal/repository"
 	"DND-AI-BOT/internal/service"
 )
 
@@ -26,6 +27,32 @@ func TestGetGameStateToolCallUsesSessionID(t *testing.T) {
 	}
 	if output.ToolName != "get_game_state" {
 		t.Fatalf("expected tool name %q, got %q", "get_game_state", output.ToolName)
+	}
+}
+
+func TestGetGameStateToolCallReturnsDefaultStateWhenMissing(t *testing.T) {
+	svc := &fakeGameStateToolService{
+		err: repository.ErrGameStateNotFound,
+	}
+	tool := NewGetGameStateTool(svc)
+
+	output, err := tool.Call(context.Background(), CallInput{SessionID: "session-missing"})
+	if err != nil {
+		t.Fatalf("expected missing game state to fall back to default, got %v", err)
+	}
+	if output.ToolName != "get_game_state" {
+		t.Fatalf("expected tool name %q, got %q", "get_game_state", output.ToolName)
+	}
+
+	gameState, ok := output.Content.(*state.GameState)
+	if !ok {
+		t.Fatalf("expected *state.GameState output, got %T", output.Content)
+	}
+	if gameState.SessionID != "session-missing" {
+		t.Fatalf("expected default game state session id %q, got %q", "session-missing", gameState.SessionID)
+	}
+	if gameState.Player.Inventory == nil || gameState.Player.Quests == nil {
+		t.Fatal("expected default game state slices to be initialized")
 	}
 }
 

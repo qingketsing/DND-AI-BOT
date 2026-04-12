@@ -13,6 +13,11 @@ FROM debian:bookworm-slim
 
 WORKDIR /app
 
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates \
+  && update-ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
 COPY --from=builder /dnd-api /usr/local/bin/dnd-api
 COPY migrations ./migrations
 COPY data ./data
