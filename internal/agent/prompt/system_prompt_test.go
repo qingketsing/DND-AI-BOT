@@ -22,3 +22,24 @@ func TestDefaultSystemPromptRequiresCreateCharacterForCharacterCreation(t *testi
 		t.Fatalf("expected prompt to mention create_character for character creation, got %q", DefaultSystemPrompt)
 	}
 }
+
+func TestDefaultSystemPromptTreatsWarmupAsBackgroundNotFinalEvidence(t *testing.T) {
+	if !strings.Contains(DefaultSystemPrompt, "预热摘要") {
+		t.Fatalf("expected prompt to mention warmup summaries, got %q", DefaultSystemPrompt)
+	}
+	if !strings.Contains(DefaultSystemPrompt, "不代替") {
+		t.Fatalf("expected prompt to state warmup does not replace retrieval, got %q", DefaultSystemPrompt)
+	}
+}
+
+func TestDefaultSystemPromptAvoidsRecreatingExistingCharacter(t *testing.T) {
+	if !strings.Contains(DefaultSystemPrompt, "不要重复要求玩家重新创建角色") {
+		t.Fatalf("expected prompt to avoid repeated character creation requests, got %q", DefaultSystemPrompt)
+	}
+}
+
+func TestDefaultSystemPromptResolvesStateConflictWithContextFirst(t *testing.T) {
+	if !strings.Contains(DefaultSystemPrompt, "如果结构化状态与当前会话事实看起来冲突") {
+		t.Fatalf("expected prompt to mention state conflict resolution, got %q", DefaultSystemPrompt)
+	}
+}
