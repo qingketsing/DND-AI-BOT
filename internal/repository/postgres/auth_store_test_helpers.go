@@ -23,6 +23,7 @@ type fakePGState struct {
 	sessions     map[string]model.AuthSession
 	tokens       map[string]string
 	gameSessions map[string]model.Session
+	memories     map[string]model.SessionMemory
 }
 
 func newFakePGState() *fakePGState {
@@ -32,6 +33,7 @@ func newFakePGState() *fakePGState {
 		sessions:     make(map[string]model.AuthSession),
 		tokens:       make(map[string]string),
 		gameSessions: make(map[string]model.Session),
+		memories:     make(map[string]model.SessionMemory),
 	}
 }
 
@@ -141,6 +143,30 @@ func (c *fakePGConn) ExecContext(ctx context.Context, query string, args []drive
 		session.History = existing.History
 		c.state.gameSessions[session.ID] = session
 		return driver.RowsAffected(1), nil
+	case strings.Contains(query, "INSERT INTO session_memories"):
+		var events []string
+		switch value := args[4].Value.(type) {
+		case []byte:
+			if err := json.Unmarshal(value, &events); err != nil {
+				return nil, err
+			}
+		case string:
+			if err := json.Unmarshal([]byte(value), &events); err != nil {
+				return nil, err
+			}
+		default:
+			return nil, fmt.Errorf("unexpected recent_key_events type %T", value)
+		}
+		memory := model.SessionMemory{
+			SessionID:        args[0].Value.(string),
+			CharacterSummary: args[1].Value.(string),
+			SceneSummary:     args[2].Value.(string),
+			CurrentObjective: args[3].Value.(string),
+			RecentKeyEvents:  events,
+			UpdatedAt:        args[5].Value.(time.Time),
+		}
+		c.state.memories[memory.SessionID] = memory
+		return driver.RowsAffected(1), nil
 	case strings.Contains(query, "DELETE FROM session_messages"):
 		sessionID := args[0].Value.(string)
 		session, ok := c.state.gameSessions[sessionID]
@@ -220,6 +246,12 @@ func (c *fakePGConn) QueryContext(ctx context.Context, query string, args []driv
 			}
 		}
 		return sessionRows(sessions), nil
+	case strings.Contains(query, "FROM session_memories"):
+		memory, ok := c.state.memories[args[0].Value.(string)]
+		if !ok {
+			return &fakeRows{}, nil
+		}
+		return sessionMemoryRows([]model.SessionMemory{memory}), nil
 	case strings.Contains(query, "FROM session_messages"):
 		session, ok := c.state.gameSessions[args[0].Value.(string)]
 		if !ok {
@@ -343,6 +375,24 @@ func historyRows(history []model.HistoryRecord) driver.Rows {
 			record.Sequence,
 			string(record.Source),
 			record.CreatedAt,
+		})
+	}
+	return rows
+}
+
+func sessionMemoryRows(memories []model.SessionMemory) driver.Rows {
+	rows := &fakeRows{
+		cols: []string{"character_summary", "scene_summary", "current_objective", "recent_key_events", "updated_at"},
+		data: make([][]driver.Value, 0, len(memories)),
+	}
+	for _, memory := range memories {
+		events, _ := json.Marshal(memory.RecentKeyEvents)
+		rows.data = append(rows.data, []driver.Value{
+			memory.CharacterSummary,
+			memory.SceneSummary,
+			memory.CurrentObjective,
+			events,
+			memory.UpdatedAt,
 		})
 	}
 	return rows

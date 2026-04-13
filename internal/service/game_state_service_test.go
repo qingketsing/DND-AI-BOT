@@ -110,6 +110,36 @@ func TestCreateCharacterInitializesNewStateWhenMissing(t *testing.T) {
 	}
 }
 
+func TestCreateCharacterUpdatesSessionMemory(t *testing.T) {
+	gameStates := newFakeGameStateRepository()
+	memories := &fakeSessionMemoryRepository{}
+	service := NewGameStateService(gameStates, NewSessionMemoryService(memories))
+	now := time.Date(2026, 4, 13, 12, 0, 0, 0, time.UTC)
+
+	_, err := service.CreateCharacter(context.Background(), CreateCharacterInput{
+		SessionID: "session-1",
+		Name:      "青稞",
+		Race:      "精灵",
+		Class:     "法师",
+		Level:     1,
+		Scene:     "the city 广场",
+	}, now)
+	if err != nil {
+		t.Fatalf("expected create character to succeed, got %v", err)
+	}
+
+	got, ok := memories.saved["session-1"]
+	if !ok {
+		t.Fatal("expected session memory to be updated")
+	}
+	if got.CharacterSummary == "" || got.SceneSummary != "the city 广场" {
+		t.Fatalf("unexpected memory update %+v", got)
+	}
+	if len(got.RecentKeyEvents) == 0 {
+		t.Fatalf("expected memory events to be recorded, got %+v", got)
+	}
+}
+
 func TestUpsertCharacterDraftMergesPartialFieldsAcrossTurns(t *testing.T) {
 	repo := newFakeGameStateRepository()
 	service := NewGameStateService(repo)
@@ -236,6 +266,29 @@ func TestSetSceneUpdatesCurrentScene(t *testing.T) {
 	}
 	if updated.CurrentScene != "forest" {
 		t.Fatalf("expected current scene %q, got %q", "forest", updated.CurrentScene)
+	}
+}
+
+func TestSetSceneUpdatesSessionMemory(t *testing.T) {
+	repo := newFakeGameStateRepository()
+	memories := &fakeSessionMemoryRepository{}
+	service := NewGameStateService(repo, NewSessionMemoryService(memories))
+	ctx := context.Background()
+	now := time.Date(2026, 4, 13, 12, 0, 0, 0, time.UTC)
+	existing := state.NewGameState("state-1", "session-1", newTestPlayerState(), now)
+	repo.bySessionID["session-1"] = existing
+
+	_, err := service.SetScene(ctx, SetSceneInput{SessionID: "session-1", Scene: "the city 广场"}, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("expected set scene to succeed, got %v", err)
+	}
+
+	got, ok := memories.saved["session-1"]
+	if !ok {
+		t.Fatal("expected session memory to be updated")
+	}
+	if got.SceneSummary != "the city 广场" {
+		t.Fatalf("unexpected memory scene summary %+v", got)
 	}
 }
 

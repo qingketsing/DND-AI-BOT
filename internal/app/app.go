@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	agentcontext "DND-AI-BOT/internal/agent/context"
@@ -30,6 +31,7 @@ type App struct {
 	SessionService         *service.SessionService
 	GameStateService       *service.GameStateService
 	EncounterService       *service.EncounterService
+	SessionMemoryService   *service.SessionMemoryService
 	KnowledgeWarmupService *service.KnowledgeWarmupService
 }
 
@@ -38,9 +40,11 @@ func NewApp(deps *bootstrap.RuntimeDependencies) (*App, error) {
 	sessionRepository := buildSessionRepository(deps)
 	gameStateRepository := buildGameStateRepository(deps)
 	encounterRepository := buildEncounterRepository(deps)
+	sessionMemoryRepository := buildSessionMemoryRepository(deps)
 
 	gameStateService := service.NewGameStateService(gameStateRepository)
 	encounterService := service.NewEncounterService(encounterRepository)
+	sessionMemoryService := service.NewSessionMemoryService(sessionMemoryRepository)
 	contextStore := basecontext.NewSessionContextStore(sessionRepository)
 	contextProvider := agentcontext.NewProvider(contextStore)
 	searchRuntime, err := bootstrap.BuildSearchRuntime()
@@ -71,6 +75,13 @@ func NewApp(deps *bootstrap.RuntimeDependencies) (*App, error) {
 			return service.AgentReplyResult{}, err
 		}
 		systemPrompt := agentprompt.ComposeSystemPrompt(input.SystemPrompt, warmup)
+		memory, err := sessionMemoryService.GetBySessionID(ctx, input.SessionID)
+		if err != nil {
+			return service.AgentReplyResult{}, err
+		}
+		if memoryPrompt := agentprompt.ComposeSessionMemoryPrompt(memory); strings.TrimSpace(memoryPrompt) != "" {
+			systemPrompt = strings.TrimSpace(systemPrompt + "\n\n" + memoryPrompt)
+		}
 
 		output, err := agentRuntime.Runtime.Run(ctx, agentruntime.RuntimeInput{
 			SessionID:    input.SessionID,
@@ -116,6 +127,7 @@ func NewApp(deps *bootstrap.RuntimeDependencies) (*App, error) {
 		SessionService:         sessionService,
 		GameStateService:       gameStateService,
 		EncounterService:       encounterService,
+		SessionMemoryService:   sessionMemoryService,
 		KnowledgeWarmupService: knowledgeWarmupService,
 	}, nil
 }
@@ -160,6 +172,22 @@ func buildEncounterRepository(deps *bootstrap.RuntimeDependencies) repository.En
 	return composite.NewCompositeEncounterRepository(
 		encounterStore,
 		encounterCache,
+		composite.CachePolicy{
+			BaseTTL:     10 * time.Minute,
+			NotFoundTTL: 30 * time.Second,
+			TTLJitter:   time.Minute,
+		},
+	)
+}
+
+// buildSessionMemoryRepository 根据运行时依赖组装真实的 SessionMemory 持久化仓库。
+func buildSessionMemoryRepository(deps *bootstrap.RuntimeDependencies) repository.SessionMemoryRepository {
+	sessionMemoryStore := postgresstore.NewPGSessionMemoryStore(deps.DB)
+	sessionMemoryCache := rediscache.NewRedisSessionMemoryCache(deps.RedisClient)
+
+	return composite.NewCompositeSessionMemoryRepository(
+		sessionMemoryStore,
+		sessionMemoryCache,
 		composite.CachePolicy{
 			BaseTTL:     10 * time.Minute,
 			NotFoundTTL: 30 * time.Second,

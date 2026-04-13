@@ -41,6 +41,9 @@ func TestNewAppBuildsCoreServices(t *testing.T) {
 	if application.EncounterService == nil {
 		t.Fatal("expected encounter service to be initialized")
 	}
+	if application.SessionMemoryService == nil {
+		t.Fatal("expected session memory service to be initialized")
+	}
 	if application.KnowledgeWarmupService == nil {
 		t.Fatal("expected knowledge warmup service to be initialized")
 	}

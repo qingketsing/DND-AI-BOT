@@ -21,7 +21,8 @@ var (
 
 // GameStateService 负责编排游戏进度的读取与更新流程。
 type GameStateService struct {
-	repository repository.GameStateRepository
+	repository    repository.GameStateRepository
+	memoryService *SessionMemoryService
 }
 
 // CreateGameStateInput 定义创建游戏进度时需要的最小输入。
@@ -99,8 +100,15 @@ type UpsertQuestInput struct {
 }
 
 // NewGameStateService 创建游戏进度服务。
-func NewGameStateService(repository repository.GameStateRepository) *GameStateService {
-	return &GameStateService{repository: repository}
+func NewGameStateService(repository repository.GameStateRepository, memoryService ...*SessionMemoryService) *GameStateService {
+	var dependency *SessionMemoryService
+	if len(memoryService) > 0 {
+		dependency = memoryService[0]
+	}
+	return &GameStateService{
+		repository:    repository,
+		memoryService: dependency,
+	}
 }
 
 // Create 创建并保存一份新的游戏进度。
@@ -154,6 +162,25 @@ func (s *GameStateService) CreateCharacter(ctx context.Context, input CreateChar
 	gameState.UpdatedAt = now
 	if err := s.repository.Save(ctx, gameState); err != nil {
 		return nil, err
+	}
+	if s.memoryService != nil {
+		characterSummary := strings.TrimSpace(gameState.Player.Name)
+		if className := strings.TrimSpace(gameState.Player.Class); className != "" {
+			if race := strings.TrimSpace(gameState.Player.Race); race != "" {
+				characterSummary = characterSummary + "，" + race + className + "。"
+			} else {
+				characterSummary = characterSummary + "，" + className + "。"
+			}
+		}
+		if _, err := s.memoryService.Update(ctx, UpdateSessionMemoryInput{
+			SessionID:        sessionID,
+			CharacterSummary: characterSummary,
+			SceneSummary:     strings.TrimSpace(input.Scene),
+			CurrentObjective: "开始冒险",
+			AppendEvent:      "角色已创建：" + strings.TrimSpace(input.Name),
+		}, now); err != nil {
+			return nil, err
+		}
 	}
 
 	return gameState, nil
@@ -296,6 +323,15 @@ func (s *GameStateService) SetScene(ctx context.Context, input SetSceneInput, no
 	gameState.SetCurrentScene(strings.TrimSpace(input.Scene), now)
 	if err := s.repository.Save(ctx, gameState); err != nil {
 		return nil, err
+	}
+	if s.memoryService != nil {
+		if _, err := s.memoryService.Update(ctx, UpdateSessionMemoryInput{
+			SessionID:    strings.TrimSpace(input.SessionID),
+			SceneSummary: strings.TrimSpace(input.Scene),
+			AppendEvent:  "场景更新为：" + strings.TrimSpace(input.Scene),
+		}, now); err != nil {
+			return nil, err
+		}
 	}
 
 	return gameState, nil
