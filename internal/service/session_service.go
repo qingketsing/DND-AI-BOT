@@ -25,6 +25,12 @@ var (
 type SessionService struct {
 	repository   repository.SessionRepository
 	agentService *AgentService
+	refresher    SessionMemoryRefresher
+}
+
+// SessionMemoryRefresher 定义消息发送完成后的长期记忆刷新接口。
+type SessionMemoryRefresher interface {
+	RefreshIfNeeded(ctx context.Context, sessionID string, now time.Time) error
 }
 
 // CreateSessionInput 定义创建会话时需要的最小输入。
@@ -52,6 +58,11 @@ func NewSessionService(repository repository.SessionRepository, agentServices ..
 	}
 }
 
+// SetMemoryRefresher 注入可选的长期记忆刷新器。
+func (s *SessionService) SetMemoryRefresher(refresher SessionMemoryRefresher) {
+	s.refresher = refresher
+}
+
 // CreateSession 创建并保存一个新会话。
 func (s *SessionService) CreateSession(ctx context.Context, input CreateSessionInput, now time.Time) (*model.Session, error) {
 	if !isValidChannel(input.Channel) {
@@ -63,6 +74,9 @@ func (s *SessionService) CreateSession(ctx context.Context, input CreateSessionI
 
 	session := model.NewSession(generateSessionID(now), strings.TrimSpace(input.UserID), input.Channel, now)
 	if err := s.repository.Save(ctx, session); err != nil {
+		return nil, err
+	}
+	if err := s.refreshSessionMemoryIfNeeded(ctx, session.ID, now); err != nil {
 		return nil, err
 	}
 
@@ -145,6 +159,10 @@ func (s *SessionService) SendMessage(ctx context.Context, userID string, userNam
 		return nil, err
 	}
 
+	if err := s.refreshSessionMemoryIfNeeded(ctx, session.ID, now); err != nil {
+		return nil, err
+	}
+
 	return session, nil
 }
 
@@ -161,4 +179,11 @@ func generateSessionID(now time.Time) string {
 // isValidChannel 校验当前是否为系统支持的接入渠道。
 func isValidChannel(channel model.Channel) bool {
 	return channel == model.ChannelWeb || channel == model.ChannelBot
+}
+
+func (s *SessionService) refreshSessionMemoryIfNeeded(ctx context.Context, sessionID string, now time.Time) error {
+	if s.refresher == nil {
+		return nil
+	}
+	return s.refresher.RefreshIfNeeded(ctx, sessionID, now)
 }

@@ -32,6 +32,7 @@ type App struct {
 	GameStateService       *service.GameStateService
 	EncounterService       *service.EncounterService
 	SessionMemoryService   *service.SessionMemoryService
+	SessionMemoryRefresher *service.SessionMemoryRefreshService
 	KnowledgeWarmupService *service.KnowledgeWarmupService
 }
 
@@ -42,9 +43,9 @@ func NewApp(deps *bootstrap.RuntimeDependencies) (*App, error) {
 	encounterRepository := buildEncounterRepository(deps)
 	sessionMemoryRepository := buildSessionMemoryRepository(deps)
 
-	gameStateService := service.NewGameStateService(gameStateRepository)
-	encounterService := service.NewEncounterService(encounterRepository)
 	sessionMemoryService := service.NewSessionMemoryService(sessionMemoryRepository)
+	gameStateService := service.NewGameStateService(gameStateRepository, sessionMemoryService)
+	encounterService := service.NewEncounterService(encounterRepository)
 	contextStore := basecontext.NewSessionContextStore(sessionRepository)
 	contextProvider := agentcontext.NewProvider(contextStore)
 	searchRuntime, err := bootstrap.BuildSearchRuntime()
@@ -67,6 +68,14 @@ func NewApp(deps *bootstrap.RuntimeDependencies) (*App, error) {
 		searchRuntime.RuleSearcher,
 		searchRuntime.LoreSearcher,
 		gameStateRepository,
+	)
+	sessionSummarizer := service.NewLLMSessionSummarizer(newRuntimeModelSummaryAdapter(agentRuntime.ModelAdapter))
+	sessionMemoryRefresher := service.NewSessionMemoryRefreshService(
+		sessionRepository,
+		sessionMemoryService,
+		sessionSummarizer,
+		30,
+		40,
 	)
 
 	agentService := service.NewAgentService(func(ctx context.Context, input service.AgentReplyInput) (service.AgentReplyResult, error) {
@@ -114,6 +123,7 @@ func NewApp(deps *bootstrap.RuntimeDependencies) (*App, error) {
 		service.SystemClock{},
 	)
 	sessionService := service.NewSessionService(sessionRepository, agentService)
+	sessionService.SetMemoryRefresher(sessionMemoryRefresher)
 	authHandler := httpHandler.NewAuthHandler(authService)
 	authMiddleware := httpMiddleware.NewAuthMiddleware(authService)
 	sessionHandler := httpHandler.NewSessionHandler(sessionService)
@@ -128,6 +138,7 @@ func NewApp(deps *bootstrap.RuntimeDependencies) (*App, error) {
 		GameStateService:       gameStateService,
 		EncounterService:       encounterService,
 		SessionMemoryService:   sessionMemoryService,
+		SessionMemoryRefresher: sessionMemoryRefresher,
 		KnowledgeWarmupService: knowledgeWarmupService,
 	}, nil
 }

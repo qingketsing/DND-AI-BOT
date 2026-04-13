@@ -115,6 +115,39 @@ func TestSendMessageUsesAgentServiceReplyWhenConfigured(t *testing.T) {
 	}
 }
 
+func TestSendMessageRefreshesSessionMemoryAfterReply(t *testing.T) {
+	repository := memory.NewSessionRepository()
+	agentService := NewAgentService(func(ctx context.Context, input AgentReplyInput) (AgentReplyResult, error) {
+		_ = ctx
+		_ = input
+		return AgentReplyResult{Reply: "规则裁定完成。"}, nil
+	}, nil)
+	refresher := &fakeSessionMemoryRefresher{}
+	service := NewSessionService(repository, agentService)
+	service.SetMemoryRefresher(refresher)
+	ctx := context.Background()
+	now := time.Date(2026, 4, 13, 12, 0, 0, 0, time.UTC)
+	session, err := service.CreateSession(ctx, CreateSessionInput{
+		UserID:  "user-1",
+		Channel: model.ChannelWeb,
+	}, now)
+	if err != nil {
+		t.Fatalf("expected create session to succeed, got %v", err)
+	}
+	initialCalls := refresher.calls
+
+	_, err = service.SendMessage(ctx, "user-1", "Alice", SendMessageInput{
+		SessionID: session.ID,
+		Content:   "hello",
+	}, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("expected send message to succeed, got %v", err)
+	}
+	if refresher.calls != initialCalls+1 || refresher.lastSessionID != session.ID {
+		t.Fatalf("expected refresher to be called once for session %q, got %+v", session.ID, refresher)
+	}
+}
+
 func TestSendMessagePassesDefaultSystemPromptToAgent(t *testing.T) {
 	repository := memory.NewSessionRepository()
 	var captured AgentReplyInput
@@ -279,4 +312,19 @@ func TestDeleteSessionRejectsDifferentOwner(t *testing.T) {
 	if !errors.Is(err, ErrSessionForbidden) {
 		t.Fatalf("expected ErrSessionForbidden, got %v", err)
 	}
+}
+
+type fakeSessionMemoryRefresher struct {
+	calls         int
+	lastSessionID string
+	lastNow       time.Time
+	err           error
+}
+
+func (f *fakeSessionMemoryRefresher) RefreshIfNeeded(ctx context.Context, sessionID string, now time.Time) error {
+	_ = ctx
+	f.calls++
+	f.lastSessionID = sessionID
+	f.lastNow = now
+	return f.err
 }

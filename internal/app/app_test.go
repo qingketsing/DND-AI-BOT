@@ -44,6 +44,9 @@ func TestNewAppBuildsCoreServices(t *testing.T) {
 	if application.SessionMemoryService == nil {
 		t.Fatal("expected session memory service to be initialized")
 	}
+	if application.SessionMemoryRefresher == nil {
+		t.Fatal("expected session memory refresher to be initialized")
+	}
 	if application.KnowledgeWarmupService == nil {
 		t.Fatal("expected knowledge warmup service to be initialized")
 	}
