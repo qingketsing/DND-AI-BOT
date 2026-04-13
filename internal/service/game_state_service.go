@@ -23,6 +23,7 @@ var (
 type GameStateService struct {
 	repository    repository.GameStateRepository
 	memoryService *SessionMemoryService
+	eventService  *SessionMemoryEventService
 }
 
 // CreateGameStateInput 定义创建游戏进度时需要的最小输入。
@@ -108,6 +109,7 @@ func NewGameStateService(repository repository.GameStateRepository, memoryServic
 	return &GameStateService{
 		repository:    repository,
 		memoryService: dependency,
+		eventService:  NewSessionMemoryEventService(dependency),
 	}
 }
 
@@ -339,14 +341,36 @@ func (s *GameStateService) SetScene(ctx context.Context, input SetSceneInput, no
 
 // UpsertQuest 新增或更新任务进度。
 func (s *GameStateService) UpsertQuest(ctx context.Context, input UpsertQuestInput, now time.Time) (*state.GameState, error) {
-	gameState, err := s.repository.LoadBySessionID(ctx, strings.TrimSpace(input.SessionID))
+	sessionID := strings.TrimSpace(input.SessionID)
+	gameState, err := s.repository.LoadBySessionID(ctx, sessionID)
 	if err != nil {
 		return nil, err
+	}
+	existing, existed := gameState.FindQuest(input.Quest.ID)
+	var previousStatus state.QuestStatus
+	if existed {
+		previousStatus = existing.Status
 	}
 
 	gameState.UpsertQuestProgress(input.Quest, now)
 	if err := s.repository.Save(ctx, gameState); err != nil {
 		return nil, err
+	}
+	if s.eventService != nil {
+		switch {
+		case !existed:
+			if err := s.eventService.RecordQuestCreated(ctx, sessionID, input.Quest.Title, input.Quest.Description, now); err != nil {
+				return nil, err
+			}
+		case input.Quest.Status == state.QuestStatusCompleted && previousStatus != state.QuestStatusCompleted:
+			if err := s.eventService.RecordQuestCompleted(ctx, sessionID, input.Quest.Title, input.Quest.Description, now); err != nil {
+				return nil, err
+			}
+		default:
+			if err := s.eventService.RecordQuestUpdated(ctx, sessionID, input.Quest.Title, string(input.Quest.Status), input.Quest.Description, now); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	return gameState, nil

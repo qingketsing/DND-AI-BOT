@@ -323,6 +323,61 @@ func TestUpsertQuestAddsAndUpdatesQuest(t *testing.T) {
 	}
 }
 
+func TestUpsertQuestUpdatesSessionMemoryForQuestLifecycle(t *testing.T) {
+	repo := newFakeGameStateRepository()
+	memories := &fakeSessionMemoryRepository{}
+	service := NewGameStateService(repo, NewSessionMemoryService(memories))
+	ctx := context.Background()
+	now := time.Date(2026, 4, 13, 19, 0, 0, 0, time.UTC)
+	existing := state.NewGameState("state-1", "session-1", newTestPlayerState(), now)
+	repo.bySessionID["session-1"] = existing
+
+	_, err := service.UpsertQuest(ctx, UpsertQuestInput{
+		SessionID: "session-1",
+		Quest: state.QuestProgress{
+			ID:          "quest-1",
+			Title:       "清理下水道鼠群",
+			Status:      state.QuestStatusActive,
+			Description: "联系人：格伦。",
+		},
+	}, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("expected active quest upsert to succeed, got %v", err)
+	}
+
+	got := memories.saved["session-1"]
+	if got == nil {
+		t.Fatal("expected memory to be updated for active quest")
+	}
+	if got.CurrentObjective != "联系人：格伦。" {
+		t.Fatalf("expected current objective to be updated, got %+v", got)
+	}
+	if len(got.RecentKeyEvents) == 0 || got.RecentKeyEvents[len(got.RecentKeyEvents)-1] != "已接任务：清理下水道鼠群。 联系人：格伦。" {
+		t.Fatalf("unexpected recent events %+v", got.RecentKeyEvents)
+	}
+
+	_, err = service.UpsertQuest(ctx, UpsertQuestInput{
+		SessionID: "session-1",
+		Quest: state.QuestProgress{
+			ID:          "quest-1",
+			Title:       "清理下水道鼠群",
+			Status:      state.QuestStatusCompleted,
+			Description: "鼠群已被清除。",
+		},
+	}, now.Add(2*time.Minute))
+	if err != nil {
+		t.Fatalf("expected completed quest upsert to succeed, got %v", err)
+	}
+
+	got = memories.saved["session-1"]
+	if got.CurrentObjective != "等待下一步行动" {
+		t.Fatalf("expected waiting objective after completion, got %+v", got)
+	}
+	if got.RecentKeyEvents[len(got.RecentKeyEvents)-1] != "任务完成：清理下水道鼠群。 鼠群已被清除。" {
+		t.Fatalf("unexpected completion event %+v", got.RecentKeyEvents)
+	}
+}
+
 func newTestPlayerState() state.PlayerState {
 	return state.PlayerState{
 		Name:  "Alice",
