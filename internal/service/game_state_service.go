@@ -326,12 +326,14 @@ func (s *GameStateService) SetScene(ctx context.Context, input SetSceneInput, no
 	if err := s.repository.Save(ctx, gameState); err != nil {
 		return nil, err
 	}
-	if s.memoryService != nil {
-		if _, err := s.memoryService.Update(ctx, UpdateSessionMemoryInput{
-			SessionID:    strings.TrimSpace(input.SessionID),
-			SceneSummary: strings.TrimSpace(input.Scene),
-			AppendEvent:  "场景更新为：" + strings.TrimSpace(input.Scene),
-		}, now); err != nil {
+	if s.eventService != nil {
+		if err := s.eventService.RecordSceneFact(
+			ctx,
+			strings.TrimSpace(input.SessionID),
+			strings.TrimSpace(input.Scene),
+			"当前场景已切换为："+strings.TrimSpace(input.Scene),
+			now,
+		); err != nil {
 			return nil, err
 		}
 	}

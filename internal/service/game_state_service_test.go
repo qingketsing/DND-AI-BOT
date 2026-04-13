@@ -290,6 +290,9 @@ func TestSetSceneUpdatesSessionMemory(t *testing.T) {
 	if got.SceneSummary != "the city 广场" {
 		t.Fatalf("unexpected memory scene summary %+v", got)
 	}
+	if len(got.RecentKeyEvents) == 0 || got.RecentKeyEvents[len(got.RecentKeyEvents)-1] != "场景事实：当前场景已切换为：the city 广场" {
+		t.Fatalf("unexpected scene fact events %+v", got.RecentKeyEvents)
+	}
 }
 
 func TestUpsertQuestAddsAndUpdatesQuest(t *testing.T) {
@@ -352,7 +355,7 @@ func TestUpsertQuestUpdatesSessionMemoryForQuestLifecycle(t *testing.T) {
 	if got.CurrentObjective != "联系人：格伦。" {
 		t.Fatalf("expected current objective to be updated, got %+v", got)
 	}
-	if len(got.RecentKeyEvents) == 0 || got.RecentKeyEvents[len(got.RecentKeyEvents)-1] != "已接任务：清理下水道鼠群。 联系人：格伦。" {
+	if len(got.RecentKeyEvents) == 0 || got.RecentKeyEvents[len(got.RecentKeyEvents)-1] != "目标更新：已接任务：清理下水道鼠群。 联系人：格伦。" {
 		t.Fatalf("unexpected recent events %+v", got.RecentKeyEvents)
 	}
 
@@ -373,7 +376,7 @@ func TestUpsertQuestUpdatesSessionMemoryForQuestLifecycle(t *testing.T) {
 	if got.CurrentObjective != "等待下一步行动" {
 		t.Fatalf("expected waiting objective after completion, got %+v", got)
 	}
-	if got.RecentKeyEvents[len(got.RecentKeyEvents)-1] != "任务完成：清理下水道鼠群。 鼠群已被清除。" {
+	if got.RecentKeyEvents[len(got.RecentKeyEvents)-1] != "目标更新：任务完成：清理下水道鼠群。 鼠群已被清除。" {
 		t.Fatalf("unexpected completion event %+v", got.RecentKeyEvents)
 	}
 }

@@ -28,12 +28,7 @@ func (s *SessionMemoryEventService) RecordQuestCreated(ctx context.Context, sess
 		event = event + " " + note
 	}
 
-	_, err := s.memory.Update(ctx, UpdateSessionMemoryInput{
-		SessionID:        strings.TrimSpace(sessionID),
-		CurrentObjective: buildQuestObjective(title, summary),
-		AppendEvent:      event,
-	}, now)
-	return err
+	return s.RecordObjectiveChanged(ctx, sessionID, buildQuestObjective(title, summary), event, now)
 }
 
 // RecordQuestUpdated 记录任务更新事件；若任务仍处于 active，则继续刷新当前目标。
@@ -50,7 +45,7 @@ func (s *SessionMemoryEventService) RecordQuestUpdated(ctx context.Context, sess
 		input.AppendEvent = input.AppendEvent + " " + note
 	}
 	if strings.TrimSpace(status) == "active" {
-		input.CurrentObjective = buildQuestObjective(title, progressNote)
+		return s.RecordObjectiveChanged(ctx, sessionID, buildQuestObjective(title, progressNote), input.AppendEvent, now)
 	}
 
 	_, err := s.memory.Update(ctx, input, now)
@@ -68,12 +63,7 @@ func (s *SessionMemoryEventService) RecordQuestCompleted(ctx context.Context, se
 		event = event + " " + note
 	}
 
-	_, err := s.memory.Update(ctx, UpdateSessionMemoryInput{
-		SessionID:        strings.TrimSpace(sessionID),
-		CurrentObjective: "等待下一步行动",
-		AppendEvent:      event,
-	}, now)
-	return err
+	return s.RecordObjectiveChanged(ctx, sessionID, "等待下一步行动", event, now)
 }
 
 // RecordObjectiveChanged 显式记录当前目标变化。
@@ -84,7 +74,11 @@ func (s *SessionMemoryEventService) RecordObjectiveChanged(ctx context.Context, 
 
 	event := ""
 	if reason = strings.TrimSpace(reason); reason != "" {
-		event = "目标更新：" + reason
+		if strings.HasPrefix(reason, "目标更新：") {
+			event = reason
+		} else {
+			event = "目标更新：" + reason
+		}
 	}
 	_, err := s.memory.Update(ctx, UpdateSessionMemoryInput{
 		SessionID:        strings.TrimSpace(sessionID),
@@ -100,10 +94,14 @@ func (s *SessionMemoryEventService) RecordSceneFact(ctx context.Context, session
 		return nil
 	}
 
+	event := strings.TrimSpace(fact)
+	if event != "" && !strings.HasPrefix(event, "场景事实：") {
+		event = "场景事实：" + event
+	}
 	_, err := s.memory.Update(ctx, UpdateSessionMemoryInput{
 		SessionID:    strings.TrimSpace(sessionID),
 		SceneSummary: strings.TrimSpace(sceneSummary),
-		AppendEvent:  strings.TrimSpace(fact),
+		AppendEvent:  event,
 	}, now)
 	return err
 }
