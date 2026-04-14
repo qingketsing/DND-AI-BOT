@@ -41,9 +41,34 @@ func (e *QwenEmbedder) Embed(ctx context.Context, texts []string) ([][]float32, 
 		return nil, nil
 	}
 
+	vectors := make([][]float32, 0, len(texts))
+	for _, text := range texts {
+		var vector []float32
+		var err error
+		for attempt := 1; attempt <= 4; attempt++ {
+			vector, err = e.embedSingle(ctx, text)
+			if err == nil {
+				break
+			}
+			// backoff on error
+			time.Sleep(time.Duration(attempt) * time.Second)
+		}
+		if err != nil {
+			return nil, err
+		}
+		vectors = append(vectors, vector)
+		// rate limit protection
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	return vectors, nil
+}
+
+func (e *QwenEmbedder) embedSingle(ctx context.Context, text string) ([]float32, error) {
 	requestBody, err := json.Marshal(qwenEmbeddingRequest{
-		Model: e.config.Model,
-		Input: texts,
+		Model:      e.config.Model,
+		Input:      text,
+		Dimensions: e.config.Dim,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("marshal qwen embedding request: %w", err)
@@ -71,24 +96,22 @@ func (e *QwenEmbedder) Embed(ctx context.Context, texts []string) ([][]float32, 
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
 		return nil, fmt.Errorf("decode qwen embedding response: %w", err)
 	}
-	if len(payload.Data) != len(texts) {
+	if len(payload.Data) != 1 {
 		return nil, ErrInvalidEmbeddingResponse
 	}
 
-	vectors := make([][]float32, 0, len(payload.Data))
-	for _, item := range payload.Data {
-		if len(item.Embedding) != e.config.Dim {
-			return nil, ErrInvalidEmbeddingResponse
-		}
-		vectors = append(vectors, append([]float32(nil), item.Embedding...))
+	item := payload.Data[0]
+	if len(item.Embedding) != e.config.Dim {
+		return nil, ErrInvalidEmbeddingResponse
 	}
 
-	return vectors, nil
+	return append([]float32(nil), item.Embedding...), nil
 }
 
 type qwenEmbeddingRequest struct {
-	Model string   `json:"model"`
-	Input []string `json:"input"`
+	Model      string `json:"model"`
+	Input      string `json:"input"`
+	Dimensions int    `json:"dimensions,omitempty"`
 }
 
 type qwenEmbeddingResponse struct {

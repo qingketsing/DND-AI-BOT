@@ -37,6 +37,7 @@ type ScoredCandidate struct {
 
 // HybridSearchStore 定义混合检索后端需要的全文与向量召回接口。
 type HybridSearchStore interface {
+	UpsertChunks(ctx context.Context, chunks []IndexedChunk) error
 	SearchFTS(ctx context.Context, request HybridSearchRequest) ([]ScoredCandidate, error)
 	SearchVector(ctx context.Context, request VectorSearchRequest) ([]ScoredCandidate, error)
 }

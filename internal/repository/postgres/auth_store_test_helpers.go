@@ -27,7 +27,16 @@ type fakePGState struct {
 	tokens       map[string]string
 	gameSessions map[string]model.Session
 	memories     map[string]model.SessionMemory
+	indexMeta    map[string]fakeKnowledgeIndexMetadata
 	knowledge    map[string]fakeKnowledgeChunk
+}
+
+type fakeKnowledgeIndexMetadata struct {
+	KnowledgeBase     string
+	EmbeddingProvider string
+	EmbeddingModel    string
+	EmbeddingDim      int
+	BuiltAt           time.Time
 }
 
 type fakeKnowledgeChunk struct {
@@ -51,6 +60,7 @@ func newFakePGState() *fakePGState {
 		tokens:       make(map[string]string),
 		gameSessions: make(map[string]model.Session),
 		memories:     make(map[string]model.SessionMemory),
+		indexMeta:    make(map[string]fakeKnowledgeIndexMetadata),
 		knowledge:    make(map[string]fakeKnowledgeChunk),
 	}
 }
@@ -225,6 +235,16 @@ func (c *fakePGConn) ExecContext(ctx context.Context, query string, args []drive
 		}
 		c.state.knowledge[chunk.ID] = chunk
 		return driver.RowsAffected(1), nil
+	case strings.Contains(query, "INSERT INTO knowledge_index_metadata"):
+		metadata := fakeKnowledgeIndexMetadata{
+			KnowledgeBase:     args[0].Value.(string),
+			EmbeddingProvider: args[1].Value.(string),
+			EmbeddingModel:    args[2].Value.(string),
+			EmbeddingDim:      int(args[3].Value.(int64)),
+			BuiltAt:           args[4].Value.(time.Time),
+		}
+		c.state.indexMeta[metadata.KnowledgeBase] = metadata
+		return driver.RowsAffected(1), nil
 	case strings.Contains(query, "DELETE FROM session_messages"):
 		sessionID := args[0].Value.(string)
 		session, ok := c.state.gameSessions[sessionID]
@@ -360,6 +380,12 @@ func (c *fakePGConn) QueryContext(ctx context.Context, query string, args []driv
 		}
 		sortKnowledgeByScore(candidates)
 		return knowledgeRows(candidates, int(args[2].Value.(int64))), nil
+	case strings.Contains(query, "FROM knowledge_index_metadata"):
+		metadata, ok := c.state.indexMeta[args[0].Value.(string)]
+		if !ok {
+			return &fakeRows{}, nil
+		}
+		return knowledgeIndexMetadataRows([]fakeKnowledgeIndexMetadata{metadata}), nil
 	default:
 		return nil, fmt.Errorf("unexpected query: %s", query)
 	}
@@ -526,6 +552,23 @@ func knowledgeRows(chunks []fakeKnowledgeChunk, limit int) driver.Rows {
 			chunk.Content,
 			chunk.Metadata,
 			score,
+		})
+	}
+	return rows
+}
+
+func knowledgeIndexMetadataRows(items []fakeKnowledgeIndexMetadata) driver.Rows {
+	rows := &fakeRows{
+		cols: []string{"knowledge_base", "embedding_provider", "embedding_model", "embedding_dim", "built_at"},
+		data: make([][]driver.Value, 0, len(items)),
+	}
+	for _, item := range items {
+		rows.data = append(rows.data, []driver.Value{
+			item.KnowledgeBase,
+			item.EmbeddingProvider,
+			item.EmbeddingModel,
+			int64(item.EmbeddingDim),
+			item.BuiltAt,
 		})
 	}
 	return rows

@@ -34,6 +34,7 @@ This spec covers:
 - embedding abstraction and first implementation against a fixed Qwen 8B embedding API
 - hybrid search store and fusion strategy
 - index build pipeline from existing JSONL chunks into PostgreSQL
+- index metadata for embedding consistency tracking
 - runtime integration behind the existing `Searcher` interface
 - rollout and fallback strategy
 
@@ -116,6 +117,30 @@ The retrieval flow becomes:
 5. the fused list is returned as `[]SearchResult`
 
 This keeps upstream code stable while replacing the retrieval core.
+
+## Current Implementation Status
+
+The following parts are already implemented in code:
+
+- `knowledge_chunks` schema with `pgvector`
+- embedding abstraction and Qwen 8B embedding provider
+- PostgreSQL hybrid store with:
+  - `UpsertChunks(...)`
+  - `SearchFTS(...)`
+  - `SearchVector(...)`
+- `RRF` fusion
+- `HybridSearcher`
+- bootstrap/runtime wiring behind `SEARCH_BACKEND`
+
+The main remaining gap is the offline index build pipeline:
+
+- load existing JSONL chunks
+- build embedding input text
+- batch embed chunks
+- upsert into `knowledge_chunks`
+- record index metadata
+
+This spec section therefore treats the index build pipeline as the final required subsystem before hybrid retrieval can serve real knowledge data.
 
 ## Data Model
 
@@ -325,6 +350,24 @@ Search flow:
 
 The first release should keep existing chunk generation intact and add a separate index-build step.
 
+### Build Strategy
+
+The first release should support only **offline full rebuild by knowledge base**.
+
+That means:
+
+- `rules` can be rebuilt independently
+- `lore` can be rebuilt independently
+- `all` can rebuild both in sequence
+
+The first release does **not** support:
+
+- in-place incremental chunk sync
+- automatic indexing during application startup
+- background index workers
+
+This keeps the operational model simple and avoids coupling runtime availability to embedding API latency.
+
 ### Input
 
 - current JSONL chunks under `data/chunks/rules/chunks.jsonl`
@@ -334,12 +377,41 @@ The first release should keep existing chunk generation intact and add a separat
 
 ```go
 type Indexer struct {
-	store    HybridSearchStore
-	embedder Embedder
+	store         HybridSearchStore
+	metadataStore IndexMetadataStore
+	embedder      Embedder
+	config        EmbeddingConfig
 }
 
-func NewIndexer(store HybridSearchStore, embedder Embedder) *Indexer
+func NewIndexer(
+	store HybridSearchStore,
+	metadataStore IndexMetadataStore,
+	embedder Embedder,
+	config EmbeddingConfig,
+) *Indexer
 func (i *Indexer) BuildIndex(ctx context.Context, knowledgeBase string, chunks []SearchChunk) error
+func (i *Indexer) BuildIndexFromSource(ctx context.Context, knowledgeBase string, source ChunkSource) error
+```
+
+Supporting contracts:
+
+```go
+type ChunkSource interface {
+	Load(ctx context.Context) ([]SearchChunk, error)
+}
+
+type IndexMetadata struct {
+	KnowledgeBase     string
+	EmbeddingProvider string
+	EmbeddingModel    string
+	EmbeddingDim      int
+	BuiltAt           time.Time
+}
+
+type IndexMetadataStore interface {
+	UpsertIndexMetadata(ctx context.Context, metadata IndexMetadata) error
+	LoadIndexMetadata(ctx context.Context, knowledgeBase string) (*IndexMetadata, error)
+}
 ```
 
 ### Embedding Text Policy
@@ -359,18 +431,53 @@ This improves semantic retrieval for title-driven and alias-driven queries.
 
 ### Build Command
 
-First release should provide a script or command such as:
+First release should provide a dedicated command:
 
 ```bash
-go run ./scripts/rag/build_hybrid_index.go --knowledge-base rules
-go run ./scripts/rag/build_hybrid_index.go --knowledge-base lore
+go run ./cmd/build_hybrid_index --knowledge-base rules
+go run ./cmd/build_hybrid_index --knowledge-base lore
 ```
 
 or a combined command:
 
 ```bash
-go run ./scripts/rag/build_hybrid_index.go --knowledge-base all
+go run ./cmd/build_hybrid_index --knowledge-base all
 ```
+
+The command is responsible for:
+
+1. loading env/config
+2. opening PostgreSQL
+3. constructing the Qwen embedder
+4. selecting the chunk source for:
+   - `rules`
+   - `lore`
+   - `all`
+5. running the indexer
+6. exiting non-zero on any failed batch
+
+### Index Metadata
+
+The pipeline must persist index metadata so the system can detect embedding-space mismatch later.
+
+New table:
+
+```sql
+create table knowledge_index_metadata (
+  knowledge_base text primary key,
+  embedding_provider text not null,
+  embedding_model text not null,
+  embedding_dim integer not null,
+  built_at timestamptz not null
+);
+```
+
+This metadata is not required for query-time hot-path logic in the first release, but it is required for:
+
+- safe operations
+- debugging
+- future migration checks
+- explicit rebuild decisions when model or dimension changes
 
 ## Runtime Integration
 
@@ -431,6 +538,11 @@ If chunk embedding fails during index build:
 - fail the batch
 - emit actionable logs
 - do not partially mark the batch as successful without explicit retry behavior
+
+If index metadata does not match the currently configured provider/model/dimension:
+
+- the system must treat the existing index as incompatible
+- the operator must rebuild before switching production traffic to the new embedding config
 
 ## Configuration
 
@@ -505,6 +617,10 @@ The database vector dimension must match the configured embedding output dimensi
 ### Model Lock-In Per Index Build
 
 Each built knowledge index is intentionally bound to a single embedding model. If the project later migrates from one Qwen embedding model size to another, the chunk embeddings must be rebuilt before that new model is used for query embedding in production.
+
+### Operational Simplicity vs Freshness
+
+The first release intentionally prefers a simple offline rebuild pipeline over incremental indexing. This means knowledge updates will not appear in hybrid retrieval until the corresponding knowledge base is rebuilt. That tradeoff is acceptable for the current product stage.
 
 ### Recall Drift
 

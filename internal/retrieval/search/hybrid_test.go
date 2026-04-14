@@ -116,6 +116,10 @@ type fakeHybridStore struct {
 	vectorErr     error
 }
 
+func (f *fakeHybridStore) UpsertChunks(ctx context.Context, chunks []IndexedChunk) error {
+	return nil
+}
+
 func (f *fakeHybridStore) SearchFTS(ctx context.Context, request HybridSearchRequest) ([]ScoredCandidate, error) {
 	if f.ftsErr != nil {
 		return nil, f.ftsErr

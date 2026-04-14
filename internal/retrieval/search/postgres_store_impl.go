@@ -39,8 +39,8 @@ func (s *PostgresHybridSearchStore) UpsertChunks(ctx context.Context, chunks []I
 				updated_at
 			)
 			VALUES (
-				$1, $2, $3, $4, $5::text[], $6, $7,
-				to_tsvector('simple', concat_ws(' ', $4, array_to_string($5::text[], ' '), $6)),
+				$1, $2, $3, $4::text, $5::text[], $6::text, $7::jsonb,
+				to_tsvector('simple', concat_ws(' ', $4::text, array_to_string($5::text[], ' '), $6::text)),
 				$8::vector, $9, $10
 			)
 			ON CONFLICT (id) DO UPDATE

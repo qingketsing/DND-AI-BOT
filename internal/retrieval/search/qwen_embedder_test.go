@@ -2,6 +2,7 @@ package search
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
@@ -26,6 +27,7 @@ func TestNewQwenEmbedderRejectsMissingCredentials(t *testing.T) {
 func TestQwenEmbedderEmbedSuccess(t *testing.T) {
 	t.Parallel()
 
+	requests := make([]qwenEmbeddingRequest, 0)
 	embedder, err := newQwenEmbedderWithClient(EmbeddingConfig{
 		Provider:  "qwen",
 		Model:     "qwen-embed-8b",
@@ -41,7 +43,25 @@ func TestQwenEmbedderEmbedSuccess(t *testing.T) {
 		if got := r.Header.Get("Authorization"); got != "Bearer secret" {
 			t.Fatalf("expected bearer auth, got %q", got)
 		}
-		return newHTTPResponse(http.StatusOK, `{"data":[{"embedding":[0.1,0.2,0.3]},{"embedding":[0.3,0.2,0.1]}]}`), nil
+		defer r.Body.Close()
+		var payload qwenEmbeddingRequest
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		requests = append(requests, payload)
+		if payload.Dimensions != 3 {
+			t.Fatalf("expected dimensions=3, got %d", payload.Dimensions)
+		}
+
+		switch payload.Input {
+		case "one":
+			return newHTTPResponse(http.StatusOK, `{"data":[{"embedding":[0.1,0.2,0.3]}]}`), nil
+		case "two":
+			return newHTTPResponse(http.StatusOK, `{"data":[{"embedding":[0.3,0.2,0.1]}]}`), nil
+		default:
+			t.Fatalf("unexpected input payload %q", payload.Input)
+			return nil, nil
+		}
 	})})
 	if err != nil {
 		t.Fatalf("expected embedder init to succeed, got %v", err)
@@ -56,6 +76,9 @@ func TestQwenEmbedderEmbedSuccess(t *testing.T) {
 	}
 	if len(vectors[0]) != 3 {
 		t.Fatalf("expected 3 dimensions, got %d", len(vectors[0]))
+	}
+	if len(requests) != 2 {
+		t.Fatalf("expected 2 embedding requests, got %d", len(requests))
 	}
 }
 
