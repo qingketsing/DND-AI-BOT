@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a PostgreSQL-backed hybrid retrieval stack using FTS, pgvector, RRF fusion, and Qwen embedding API while preserving the existing `Searcher` interface.
+**Goal:** Build a PostgreSQL-backed hybrid retrieval stack using FTS, pgvector, RRF fusion, and a fixed Qwen 8B embedding API while preserving the existing `Searcher` interface.
 
-**Architecture:** Keep the current retrieval callers unchanged and replace the retrieval core underneath `Searcher`. Add a PostgreSQL knowledge index, an embedding abstraction with a Qwen-backed provider, a hybrid search store, an RRF fusion layer, and an index build command. Rollout remains configuration-driven with lexical fallback.
+**Architecture:** Keep the current retrieval callers unchanged and replace the retrieval core underneath `Searcher`. Add a PostgreSQL knowledge index, an embedding abstraction with a Qwen 8B-backed provider, a hybrid search store, an RRF fusion layer, and an index build command. Rollout remains configuration-driven with lexical fallback. The first release requires one fixed embedding provider/model/dimension for both offline chunk indexing and online query embedding.
 
 **Tech Stack:** Go, PostgreSQL, pgvector, FTS/GIN, RRF, HTTP embedding API, existing bootstrap/runtime wiring
 
@@ -92,20 +92,22 @@ git commit -m "update: hybrid rag contracts finished"
 
 ---
 
-### Task 3: Implement Qwen Embedding Provider
+### Task 3: Implement Qwen 8B Embedding Provider
 
 **Files:**
 - Create: `internal/retrieval/search/qwen_embedder.go`
 - Create: `internal/retrieval/search/qwen_embedder_test.go`
 
-- [ ] Implement HTTP client for Qwen embedding API
+- [ ] Implement HTTP client for the selected Qwen 8B embedding API
 - [ ] Support batching through `Embed(ctx, texts []string)`
 - [ ] Validate vector dimension against config
+- [ ] Fail fast when `EMBEDDING_API_KEY` or `EMBEDDING_BASE_URL` is missing in hybrid mode
 - [ ] Add tests with fake HTTP server covering:
   - success
   - HTTP error
   - malformed response
   - dimension mismatch
+  - missing required embedding credentials
 - [ ] Run:
 
 ```bash
@@ -137,6 +139,7 @@ git commit -m "update: qwen embedding provider finished"
   - knowledge-base filter
   - FTS recall
   - vector recall ordering
+  - rejection or explicit validation when stored vector dimension does not match configured dimension
 - [ ] Run:
 
 ```bash
@@ -218,6 +221,7 @@ git commit -m "update: hybrid rag searcher finished"
 
 - [ ] Implement `buildEmbeddingText(...)`
 - [ ] Implement `Indexer.BuildIndex(...)`
+- [ ] Write index metadata that records the embedding provider, embedding model, and embedding dimension used for the build
 - [ ] Add command-line loader for:
   - rules
   - lore
@@ -249,6 +253,12 @@ git commit -m "update: hybrid rag indexer finished"
   - `lexical`
   - `hybrid`
 - [ ] Add embedding config loading from env
+- [ ] Validate that hybrid mode has:
+  - `EMBEDDING_PROVIDER=qwen`
+  - one configured 8B embedding model
+  - `EMBEDDING_API_KEY`
+  - `EMBEDDING_BASE_URL`
+  - `EMBEDDING_DIM`
 - [ ] Build lexical searchers when configured for lexical
 - [ ] Build hybrid searchers when configured for hybrid
 - [ ] Add optional fallback to lexical when hybrid init fails

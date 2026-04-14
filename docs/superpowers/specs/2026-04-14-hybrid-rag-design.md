@@ -7,7 +7,7 @@ Upgrade the current retrieval stack from JSONL-backed lexical search to a produc
 - PostgreSQL full-text search (`FTS`)
 - pgvector semantic search
 - `RRF` result fusion
-- Qwen embedding API for vector generation
+- Qwen 8B embedding API for vector generation
 
 The design must preserve the existing `Searcher` abstraction so the current agent tools and warmup layer can migrate without a large upstream rewrite.
 
@@ -31,7 +31,7 @@ This works for exact term lookup, but it has three structural limits:
 This spec covers:
 
 - database schema for indexed knowledge chunks
-- embedding abstraction and first implementation against Qwen embedding API
+- embedding abstraction and first implementation against a fixed Qwen 8B embedding API
 - hybrid search store and fusion strategy
 - index build pipeline from existing JSONL chunks into PostgreSQL
 - runtime integration behind the existing `Searcher` interface
@@ -86,6 +86,20 @@ The design must distinguish:
 
 - offline chunk embedding and index build
 - online query embedding during retrieval
+
+### Embedding Consistency
+
+The first production release must use the same embedding provider, the same embedding model, and the same embedding dimension for:
+
+- offline chunk indexing
+- online query embedding
+
+The system must not support mixing:
+
+- one model for index build and another for online queries
+- one vector dimension for stored chunks and another for query embedding
+
+If the embedding model changes later, the index must be rebuilt before production traffic is switched.
 
 ## Architecture
 
@@ -161,8 +175,9 @@ with (lists = 100);
 
 Notes:
 
-- `embedding vector(1024)` assumes the first release uses Qwen embedding output dimension `1024`
-- if a lower configured dimension is chosen, the schema must be updated to match that configured dimension
+- `embedding vector(1024)` assumes the first release uses a Qwen 8B embedding model configured to output `1024` dimensions
+- the schema dimension must match the configured embedding output dimension exactly
+- the first release does not support mixing multiple embedding dimensions inside one index
 - `content_tsv` should be built from weighted title, aliases, and content
 
 ## Embedding Design
@@ -189,7 +204,7 @@ func EmbedQuery(ctx context.Context, embedder Embedder, text string) ([]float32,
 
 ### First Provider
 
-First implementation should call the Qwen embedding API.
+First implementation should call a Qwen 8B embedding API.
 
 This is not a chat model dependency. It is a dedicated embedding provider used to generate vectors for:
 
@@ -213,10 +228,11 @@ type EmbeddingConfig struct {
 Initial deployment assumptions:
 
 - provider: `qwen`
-- model: configured externally
+- model: configured externally, but fixed to one 8B embedding model for both indexing and online queries
 - dimension: `1024`
+- API key: configured through environment variables
 
-The abstraction must not hard-code Qwen outside the first provider implementation.
+The abstraction must not hard-code Qwen outside the first provider implementation, but the first release intentionally standardizes on one Qwen 8B model to avoid vector-space mismatch between offline indexing and online query retrieval.
 
 ## Retrieval Components
 
@@ -429,13 +445,15 @@ HYBRID_FINAL_TOPK=8
 HYBRID_RRF_K=60
 
 EMBEDDING_PROVIDER=qwen
-EMBEDDING_MODEL=<configured externally>
+EMBEDDING_MODEL=<configured-8b-embedding-model>
+EMBEDDING_API_KEY=<required>
+EMBEDDING_BASE_URL=<required>
 EMBEDDING_DIM=1024
 EMBEDDING_BATCH_SIZE=32
 EMBEDDING_TIMEOUT_SECONDS=30
-EMBEDDING_BASE_URL=<configured externally>
-EMBEDDING_API_KEY=<configured externally>
 ```
+
+`EMBEDDING_API_KEY` must be treated as a required secret in hybrid mode. If it is missing and lexical fallback is disabled, hybrid initialization must fail fast at startup.
 
 ## Testing Strategy
 
@@ -483,6 +501,10 @@ Query-time embedding introduces per-request cost and latency. This is acceptable
 ### Dimension Lock-In
 
 The database vector dimension must match the configured embedding output dimension. This should be explicit in migration and config.
+
+### Model Lock-In Per Index Build
+
+Each built knowledge index is intentionally bound to a single embedding model. If the project later migrates from one Qwen embedding model size to another, the chunk embeddings must be rebuilt before that new model is used for query embedding in production.
 
 ### Recall Drift
 
