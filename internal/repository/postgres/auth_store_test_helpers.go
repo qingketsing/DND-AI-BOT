@@ -8,6 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -24,6 +27,20 @@ type fakePGState struct {
 	tokens       map[string]string
 	gameSessions map[string]model.Session
 	memories     map[string]model.SessionMemory
+	knowledge    map[string]fakeKnowledgeChunk
+}
+
+type fakeKnowledgeChunk struct {
+	ID            string
+	KnowledgeBase string
+	SourceID      string
+	Title         string
+	Aliases       []string
+	Content       string
+	Metadata      []byte
+	Embedding     []float32
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 func newFakePGState() *fakePGState {
@@ -34,7 +51,12 @@ func newFakePGState() *fakePGState {
 		tokens:       make(map[string]string),
 		gameSessions: make(map[string]model.Session),
 		memories:     make(map[string]model.SessionMemory),
+		knowledge:    make(map[string]fakeKnowledgeChunk),
 	}
+}
+
+func NewFakeKnowledgePGState() *fakePGState {
+	return newFakePGState()
 }
 
 func newFakePGDB(t *testing.T, state *fakePGState) *sql.DB {
@@ -47,6 +69,10 @@ func newFakePGDB(t *testing.T, state *fakePGState) *sql.DB {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	return db
+}
+
+func NewFakeKnowledgePGDB(t *testing.T, state *fakePGState) *sql.DB {
+	return newFakePGDB(t, state)
 }
 
 type fakePGDriver struct {
@@ -167,6 +193,38 @@ func (c *fakePGConn) ExecContext(ctx context.Context, query string, args []drive
 		}
 		c.state.memories[memory.SessionID] = memory
 		return driver.RowsAffected(1), nil
+	case strings.Contains(query, "INSERT INTO knowledge_chunks"):
+		var metadata []byte
+		switch value := args[6].Value.(type) {
+		case []byte:
+			metadata = append([]byte(nil), value...)
+		case string:
+			metadata = []byte(value)
+		default:
+			return nil, fmt.Errorf("unexpected knowledge metadata type %T", value)
+		}
+		embedding, err := parseVectorLiteral(args[7].Value.(string))
+		if err != nil {
+			return nil, err
+		}
+		aliases, err := parseTextArrayLiteral(args[4].Value.(string))
+		if err != nil {
+			return nil, err
+		}
+		chunk := fakeKnowledgeChunk{
+			ID:            args[0].Value.(string),
+			KnowledgeBase: args[1].Value.(string),
+			SourceID:      args[2].Value.(string),
+			Title:         args[3].Value.(string),
+			Aliases:       aliases,
+			Content:       args[5].Value.(string),
+			Metadata:      metadata,
+			Embedding:     embedding,
+			CreatedAt:     args[8].Value.(time.Time),
+			UpdatedAt:     args[9].Value.(time.Time),
+		}
+		c.state.knowledge[chunk.ID] = chunk
+		return driver.RowsAffected(1), nil
 	case strings.Contains(query, "DELETE FROM session_messages"):
 		sessionID := args[0].Value.(string)
 		session, ok := c.state.gameSessions[sessionID]
@@ -258,6 +316,50 @@ func (c *fakePGConn) QueryContext(ctx context.Context, query string, args []driv
 			return &fakeRows{cols: []string{"id", "user_id", "user_name", "content", "sequence", "source", "created_at"}}, nil
 		}
 		return historyRows(session.History), nil
+	case strings.Contains(query, "FROM knowledge_chunks") && strings.Contains(query, "websearch_to_tsquery"):
+		knowledgeBase := args[0].Value.(string)
+		queryText := strings.ToLower(args[1].Value.(string))
+		candidates := make([]fakeKnowledgeChunk, 0)
+		for _, chunk := range c.state.knowledge {
+			if chunk.KnowledgeBase != knowledgeBase {
+				continue
+			}
+			score := 0.0
+			title := strings.ToLower(chunk.Title)
+			content := strings.ToLower(chunk.Content)
+			if strings.Contains(title, queryText) {
+				score += 5
+			}
+			if strings.Contains(content, queryText) {
+				score += 2
+			}
+			for _, alias := range chunk.Aliases {
+				if strings.Contains(strings.ToLower(alias), queryText) {
+					score += 4
+				}
+			}
+			if score > 0 {
+				candidates = append(candidates, chunkWithScore(chunk, score))
+			}
+		}
+		sortKnowledgeByScore(candidates)
+		return knowledgeRows(candidates, int(args[2].Value.(int64))), nil
+	case strings.Contains(query, "FROM knowledge_chunks") && strings.Contains(query, "embedding <=>"):
+		knowledgeBase := args[0].Value.(string)
+		queryVector, err := parseVectorLiteral(args[1].Value.(string))
+		if err != nil {
+			return nil, err
+		}
+		candidates := make([]fakeKnowledgeChunk, 0)
+		for _, chunk := range c.state.knowledge {
+			if chunk.KnowledgeBase != knowledgeBase {
+				continue
+			}
+			score := cosineSimilarity(chunk.Embedding, queryVector)
+			candidates = append(candidates, chunkWithScore(chunk, score))
+		}
+		sortKnowledgeByScore(candidates)
+		return knowledgeRows(candidates, int(args[2].Value.(int64))), nil
 	default:
 		return nil, fmt.Errorf("unexpected query: %s", query)
 	}
@@ -396,6 +498,126 @@ func sessionMemoryRows(memories []model.SessionMemory) driver.Rows {
 		})
 	}
 	return rows
+}
+
+func knowledgeRows(chunks []fakeKnowledgeChunk, limit int) driver.Rows {
+	rows := &fakeRows{
+		cols: []string{"id", "source_id", "knowledge_base", "title", "content", "metadata", "score"},
+	}
+	for i, chunk := range chunks {
+		if limit > 0 && i >= limit {
+			break
+		}
+		score := 0.0
+		if chunk.Metadata != nil {
+			var payload map[string]any
+			_ = json.Unmarshal(chunk.Metadata, &payload)
+			if value, ok := payload["_fake_score"].(float64); ok {
+				score = value
+				delete(payload, "_fake_score")
+				chunk.Metadata, _ = json.Marshal(payload)
+			}
+		}
+		rows.data = append(rows.data, []driver.Value{
+			chunk.ID,
+			chunk.SourceID,
+			chunk.KnowledgeBase,
+			chunk.Title,
+			chunk.Content,
+			chunk.Metadata,
+			score,
+		})
+	}
+	return rows
+}
+
+func chunkWithScore(chunk fakeKnowledgeChunk, score float64) fakeKnowledgeChunk {
+	var payload map[string]any
+	if len(chunk.Metadata) > 0 {
+		_ = json.Unmarshal(chunk.Metadata, &payload)
+	}
+	if payload == nil {
+		payload = make(map[string]any)
+	}
+	payload["_fake_score"] = score
+	raw, _ := json.Marshal(payload)
+	chunk.Metadata = raw
+	return chunk
+}
+
+func sortKnowledgeByScore(chunks []fakeKnowledgeChunk) {
+	sort.SliceStable(chunks, func(i, j int) bool {
+		scoreI := extractFakeScore(chunks[i].Metadata)
+		scoreJ := extractFakeScore(chunks[j].Metadata)
+		if scoreI == scoreJ {
+			return chunks[i].ID < chunks[j].ID
+		}
+		return scoreI > scoreJ
+	})
+}
+
+func extractFakeScore(raw []byte) float64 {
+	if len(raw) == 0 {
+		return 0
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return 0
+	}
+	if value, ok := payload["_fake_score"].(float64); ok {
+		return value
+	}
+	return 0
+}
+
+func parseVectorLiteral(value string) ([]float32, error) {
+	value = strings.TrimSpace(strings.Trim(value, "[]"))
+	if value == "" {
+		return nil, nil
+	}
+	parts := strings.Split(value, ",")
+	vector := make([]float32, 0, len(parts))
+	for _, part := range parts {
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(part), 32)
+		if err != nil {
+			return nil, err
+		}
+		vector = append(vector, float32(parsed))
+	}
+	return vector, nil
+}
+
+func parseTextArrayLiteral(value string) ([]string, error) {
+	value = strings.TrimSpace(strings.Trim(value, "{}"))
+	if value == "" {
+		return nil, nil
+	}
+	parts := strings.Split(value, ",")
+	values := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		part = strings.Trim(part, `"`)
+		part = strings.ReplaceAll(part, `\"`, `"`)
+		part = strings.ReplaceAll(part, `\\`, `\`)
+		values = append(values, part)
+	}
+	return values, nil
+}
+
+func cosineSimilarity(a []float32, b []float32) float64 {
+	if len(a) == 0 || len(a) != len(b) {
+		return 0
+	}
+	var dot, normA, normB float64
+	for i := range a {
+		dot += float64(a[i] * b[i])
+		normA += float64(a[i] * a[i])
+		normB += float64(b[i] * b[i])
+	}
+	if normA == 0 || normB == 0 {
+		return 0
+	}
+	return dot / (math.Sqrt(normA) * math.Sqrt(normB))
 }
 
 func decodeJSONRow[T any](t *testing.T, raw string, out *T) {

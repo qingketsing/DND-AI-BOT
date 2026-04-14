@@ -48,7 +48,7 @@ func NewApp(deps *bootstrap.RuntimeDependencies) (*App, error) {
 	encounterService := service.NewEncounterService(encounterRepository)
 	contextStore := basecontext.NewSessionContextStore(sessionRepository)
 	contextProvider := agentcontext.NewProvider(contextStore)
-	searchRuntime, err := bootstrap.BuildSearchRuntime()
+	searchRuntime, err := bootstrap.BuildSearchRuntimeWithDeps(deps)
 	if err != nil {
 		return nil, err
 	}

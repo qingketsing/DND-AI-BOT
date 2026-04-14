@@ -1,6 +1,10 @@
 package bootstrap
 
-import "testing"
+import (
+	"testing"
+
+	retrievalsearch "DND-AI-BOT/internal/retrieval/search"
+)
 
 func TestBuildSearchRuntimeBuildsDefaultSearchers(t *testing.T) {
 	deps, err := BuildSearchRuntime()
@@ -53,7 +57,7 @@ func TestLoadSearchConfigFromEnvRejectsHybridWithoutEmbeddingCredentials(t *test
 	}
 }
 
-func TestBuildSearchRuntimeRejectsHybridUntilSearcherIsImplemented(t *testing.T) {
+func TestBuildSearchRuntimeWithDepsRejectsHybridWithoutDB(t *testing.T) {
 	t.Setenv("SEARCH_BACKEND", "hybrid")
 	t.Setenv("EMBEDDING_PROVIDER", "qwen")
 	t.Setenv("EMBEDDING_MODEL", "qwen-embed-8b")
@@ -63,8 +67,30 @@ func TestBuildSearchRuntimeRejectsHybridUntilSearcherIsImplemented(t *testing.T)
 	t.Setenv("EMBEDDING_BATCH_SIZE", "32")
 	t.Setenv("EMBEDDING_TIMEOUT_SECONDS", "30")
 
-	_, err := BuildSearchRuntime()
-	if err != ErrHybridSearchNotImplemented {
-		t.Fatalf("expected ErrHybridSearchNotImplemented, got %v", err)
+	_, err := BuildSearchRuntimeWithDeps(nil)
+	if err != ErrMissingSearchRuntimeDependencies {
+		t.Fatalf("expected ErrMissingSearchRuntimeDependencies, got %v", err)
+	}
+}
+
+func TestBuildSearchRuntimeWithDepsBuildsHybridSearchers(t *testing.T) {
+	t.Setenv("SEARCH_BACKEND", "hybrid")
+	t.Setenv("EMBEDDING_PROVIDER", "qwen")
+	t.Setenv("EMBEDDING_MODEL", "qwen-embed-8b")
+	t.Setenv("EMBEDDING_API_KEY", "secret")
+	t.Setenv("EMBEDDING_BASE_URL", "https://example.com")
+	t.Setenv("EMBEDDING_DIM", "1024")
+	t.Setenv("EMBEDDING_BATCH_SIZE", "32")
+	t.Setenv("EMBEDDING_TIMEOUT_SECONDS", "30")
+
+	deps, err := BuildSearchRuntimeWithDeps(&RuntimeDependencies{DB: newEmptySearchRuntimeDB()})
+	if err != nil {
+		t.Fatalf("expected hybrid search runtime to build, got %v", err)
+	}
+	if deps.RuleSearcher == nil || deps.LoreSearcher == nil {
+		t.Fatal("expected hybrid searchers to be constructed")
+	}
+	if _, ok := deps.RuleSearcher.(*retrievalsearch.HybridSearcher); !ok {
+		t.Fatalf("expected rule searcher to be HybridSearcher, got %T", deps.RuleSearcher)
 	}
 }
