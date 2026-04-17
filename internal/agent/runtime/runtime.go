@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -9,8 +10,9 @@ import (
 )
 
 const (
-	defaultMaxSteps   = 8
-	defaultContextMax = 40
+	defaultMaxSteps         = 8
+	defaultContextMax       = 40
+	defaultToolFailureLimit = 2
 )
 
 // Runtime 负责串联模型调用、工具执行和步骤积累。
@@ -38,6 +40,7 @@ func (r *Runtime) Run(ctx context.Context, input RuntimeInput) (RuntimeOutput, e
 
 	toolSpecs := r.registry.List()
 	steps := make([]StepRecord, 0, input.MaxSteps)
+	toolFailureCount := 0
 
 	for i := 0; i < input.MaxSteps; i++ {
 		modelInput := buildModelInput(input, toolSpecs, steps)
@@ -62,8 +65,14 @@ func (r *Runtime) Run(ctx context.Context, input RuntimeInput) (RuntimeOutput, e
 			Now:       time.Now().UTC(),
 		})
 		if err != nil {
-			return RuntimeOutput{}, err
+			toolFailureCount++
+			steps = append(steps, buildToolErrorStepRecord(modelOutput, err))
+			if toolFailureCount >= defaultToolFailureLimit {
+				return RuntimeOutput{}, ErrToolFailureLimitExceeded
+			}
+			continue
 		}
+		toolFailureCount = 0
 
 		steps = append(steps, buildStepRecord(modelOutput, toolOutput))
 	}
@@ -133,5 +142,24 @@ func buildStepRecord(output ModelOutput, toolOutput tools.CallOutput) StepRecord
 		ActionName:  output.ToolRequest.Name,
 		ActionInput: output.ToolRequest.Input,
 		Observation: toolOutput.Content,
+	}
+}
+
+func buildToolErrorStepRecord(output ModelOutput, err error) StepRecord {
+	toolName := ""
+	var input json.RawMessage
+	if output.ToolRequest != nil {
+		toolName = output.ToolRequest.Name
+		input = output.ToolRequest.Input
+	}
+	return StepRecord{
+		Thought:     output.Thought,
+		ActionName:  toolName,
+		ActionInput: input,
+		Observation: ToolErrorObservation{
+			ToolName:  toolName,
+			Message:   err.Error(),
+			Retryable: true,
+		},
 	}
 }

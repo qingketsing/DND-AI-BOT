@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -69,6 +70,32 @@ func TestBuildCharacterRulesSummaryReturnsEmptyWhenCharacterMissing(t *testing.T
 	}
 	if bundle.CharacterRulesSummary != "" {
 		t.Fatalf("expected empty character summary, got %q", bundle.CharacterRulesSummary)
+	}
+}
+
+func TestBuildWarmupBestEffortReturnsWarningsInsteadOfError(t *testing.T) {
+	service := NewKnowledgeWarmupService(
+		&fakeWarmupSearcher{err: errors.New("rules unavailable")},
+		&fakeWarmupSearcher{
+			results: map[string][]retrievalsearch.SearchResult{
+				"the city 世界设定 城市 天空 滑门 裂隙": {
+					{Content: "the city 设定摘要"},
+				},
+			},
+		},
+		&fakeWarmupGameStateRepository{err: repository.ErrGameStateNotFound},
+	)
+
+	result := service.BuildWarmupBestEffort(context.Background(), "session-1")
+
+	if result.Bundle.BaseRulesSummary != "" {
+		t.Fatalf("expected failed rules warmup to be empty, got %q", result.Bundle.BaseRulesSummary)
+	}
+	if !strings.Contains(result.Bundle.BaseLoreSummary, "the city 设定摘要") {
+		t.Fatalf("expected lore warmup to survive, got %q", result.Bundle.BaseLoreSummary)
+	}
+	if len(result.Warnings) == 0 || result.Warnings[0].Source != "base_rules" {
+		t.Fatalf("expected base_rules warning, got %+v", result.Warnings)
 	}
 }
 

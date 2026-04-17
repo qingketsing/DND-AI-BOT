@@ -17,6 +17,8 @@ type searchKnowledgeArgs struct {
 type searchKnowledgeResult struct {
 	KnowledgeBase string                         `json:"knowledge_base"`
 	Results       []retrievalsearch.SearchResult `json:"results"`
+	Degraded      bool                           `json:"degraded"`
+	Message       string                         `json:"message,omitempty"`
 }
 
 type SearchRulesTool struct {
@@ -97,11 +99,22 @@ func callKnowledgeSearcher(
 		TopK:  args.TopK,
 	})
 	if err != nil {
-		return CallOutput{}, err
+		return newToolOutput(toolName, buildRetrievalFallbackResult(args.Query, knowledgeBase, err)), nil
 	}
 
 	return newToolOutput(toolName, searchKnowledgeResult{
 		KnowledgeBase: knowledgeBase,
 		Results:       results,
 	}), nil
+}
+
+func buildRetrievalFallbackResult(query string, knowledgeBase string, err error) searchKnowledgeResult {
+	_ = query
+	_ = err
+	return searchKnowledgeResult{
+		KnowledgeBase: knowledgeBase,
+		Results:       []retrievalsearch.SearchResult{},
+		Degraded:      true,
+		Message:       "知识库检索暂时不可用，请基于已确认上下文继续；涉及具体规则或设定细节时，需要稍后重新检索确认。",
+	}
 }

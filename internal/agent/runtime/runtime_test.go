@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"DND-AI-BOT/internal/agent/tools"
@@ -165,6 +166,74 @@ func TestRuntimeRunAccumulatesStepsAcrossToolCalls(t *testing.T) {
 	}
 	if len(model.inputs[1].Steps) != 1 || len(model.inputs[2].Steps) != 2 {
 		t.Fatalf("expected model step history to accumulate, got second=%d third=%d", len(model.inputs[1].Steps), len(model.inputs[2].Steps))
+	}
+}
+
+func TestRuntimeRunPassesToolErrorObservationBackToModel(t *testing.T) {
+	model := &fakeModelAdapter{
+		outputs: []ModelOutput{
+			{
+				Thought: "尝试读取战斗状态。",
+				ToolRequest: &ToolRequest{
+					Name:  "get_encounter",
+					Input: json.RawMessage(`{}`),
+				},
+			},
+			{
+				Reply: "我尝试读取结构化战斗状态时失败了，不会假装状态已经更新。",
+			},
+		},
+	}
+	executor := &fakeExecutor{err: errors.New("encounter backend unavailable")}
+	runtime := NewRuntime(model, &fakeRegistry{
+		specs: []tools.ToolSpec{{Name: "get_encounter", Description: "读取战斗状态"}},
+	}, executor)
+
+	output, err := runtime.Run(context.Background(), RuntimeInput{
+		SessionID:   "session-1",
+		UserMessage: "攻击地精",
+		MaxSteps:    4,
+	})
+	if err != nil {
+		t.Fatalf("expected run to let model explain tool failure, got %v", err)
+	}
+	if !strings.Contains(output.Reply, "失败") {
+		t.Fatalf("expected reply to explain failure, got %q", output.Reply)
+	}
+	if len(output.Steps) != 1 {
+		t.Fatalf("expected one failed tool step, got %+v", output.Steps)
+	}
+	observation, ok := output.Steps[0].Observation.(ToolErrorObservation)
+	if !ok {
+		t.Fatalf("expected ToolErrorObservation, got %T", output.Steps[0].Observation)
+	}
+	if observation.ToolName != "get_encounter" || !strings.Contains(observation.Message, "encounter backend unavailable") {
+		t.Fatalf("unexpected tool error observation %+v", observation)
+	}
+	if len(model.inputs) != 2 || len(model.inputs[1].Steps) != 1 {
+		t.Fatalf("expected second model call to receive failed step, got %+v", model.inputs)
+	}
+}
+
+func TestRuntimeRunStopsAfterToolFailureLimit(t *testing.T) {
+	model := &fakeModelAdapter{
+		outputs: []ModelOutput{
+			{ToolRequest: &ToolRequest{Name: "get_encounter", Input: json.RawMessage(`{}`)}},
+			{ToolRequest: &ToolRequest{Name: "get_encounter", Input: json.RawMessage(`{}`)}},
+			{ToolRequest: &ToolRequest{Name: "get_encounter", Input: json.RawMessage(`{}`)}},
+		},
+	}
+	runtime := NewRuntime(model, &fakeRegistry{
+		specs: []tools.ToolSpec{{Name: "get_encounter", Description: "读取战斗状态"}},
+	}, &fakeExecutor{err: errors.New("backend down")})
+
+	_, err := runtime.Run(context.Background(), RuntimeInput{
+		SessionID:   "session-1",
+		UserMessage: "继续战斗",
+		MaxSteps:    4,
+	})
+	if !errors.Is(err, ErrToolFailureLimitExceeded) {
+		t.Fatalf("expected ErrToolFailureLimitExceeded, got %v", err)
 	}
 }
 

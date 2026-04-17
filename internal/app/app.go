@@ -79,11 +79,11 @@ func NewApp(deps *bootstrap.RuntimeDependencies) (*App, error) {
 	)
 
 	agentService := service.NewAgentService(func(ctx context.Context, input service.AgentReplyInput) (service.AgentReplyResult, error) {
-		warmup, err := knowledgeWarmupService.BuildWarmup(ctx, input.SessionID)
-		if err != nil {
-			return service.AgentReplyResult{}, err
+		warmupResult := knowledgeWarmupService.BuildWarmupBestEffort(ctx, input.SessionID)
+		systemPrompt := agentprompt.ComposeSystemPrompt(input.SystemPrompt, warmupResult.Bundle)
+		if warningsPrompt := composeWarmupWarningsPrompt(warmupResult.Warnings); strings.TrimSpace(warningsPrompt) != "" {
+			systemPrompt = strings.TrimSpace(systemPrompt + "\n\n" + warningsPrompt)
 		}
-		systemPrompt := agentprompt.ComposeSystemPrompt(input.SystemPrompt, warmup)
 		preloadedContextPrompt, err := buildPreloadedContextPrompt(ctx, preloadedContextInput{
 			SessionID:           input.SessionID,
 			ContextLimit:        input.ContextLimit,

@@ -96,26 +96,48 @@ func TestAgentServiceReplyLogsEffectiveDefaultsWhenUnset(t *testing.T) {
 	}
 }
 
-func TestAgentServiceReplyLogsFailure(t *testing.T) {
+func TestAgentServiceReplyFallsBackWhenRunnerFails(t *testing.T) {
 	buffer := bytes.NewBuffer(nil)
 	logger := log.New(buffer, "", 0)
 	service := NewAgentService(func(ctx context.Context, input AgentReplyInput) (AgentReplyResult, error) {
 		_ = ctx
 		_ = input
-		return AgentReplyResult{}, errors.New("boom")
+		return AgentReplyResult{}, errors.New("deepseek chat completion: timeout")
 	}, logger)
 
-	_, err := service.Reply(context.Background(), AgentReplyInput{
+	output, err := service.Reply(context.Background(), AgentReplyInput{
 		SessionID:   "session-1",
 		UserMessage: "hello",
 	})
-	if err == nil {
-		t.Fatal("expected reply to fail")
+	if err != nil {
+		t.Fatalf("expected reply to fall back instead of failing, got %v", err)
+	}
+	if !strings.Contains(output.Reply, "模型服务暂时不可用") {
+		t.Fatalf("expected model fallback reply, got %q", output.Reply)
 	}
 
 	logOutput := buffer.String()
-	if !strings.Contains(logOutput, "agent run failed") {
-		t.Fatalf("expected failure log, got %q", logOutput)
+	if !strings.Contains(logOutput, "agent run fallback") {
+		t.Fatalf("expected fallback log, got %q", logOutput)
+	}
+}
+
+func TestAgentServiceReplyUsesCustomFallbackResponder(t *testing.T) {
+	service := NewAgentService(func(ctx context.Context, input AgentReplyInput) (AgentReplyResult, error) {
+		_ = ctx
+		_ = input
+		return AgentReplyResult{}, errors.New("runtime failed")
+	}, nil, WithAgentFallbackResponder(stubAgentFallbackResponder{reply: "自定义兜底"}))
+
+	output, err := service.Reply(context.Background(), AgentReplyInput{
+		SessionID:   "session-1",
+		UserMessage: "hello",
+	})
+	if err != nil {
+		t.Fatalf("expected reply to fall back, got %v", err)
+	}
+	if output.Reply != "自定义兜底" {
+		t.Fatalf("expected custom fallback reply, got %q", output.Reply)
 	}
 }
 
@@ -131,5 +153,16 @@ func TestToolNamesFromStepsReturnsCalledTools(t *testing.T) {
 	}
 	if names[0] != "get_game_state" || names[1] != "skill_check" {
 		t.Fatalf("unexpected tool names %v", names)
+	}
+}
+
+type stubAgentFallbackResponder struct {
+	reply string
+}
+
+func (s stubAgentFallbackResponder) BuildFallbackReply(input AgentFallbackInput) AgentFallbackReply {
+	return AgentFallbackReply{
+		Reply: s.reply,
+		Kind:  input.Kind,
 	}
 }

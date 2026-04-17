@@ -18,6 +18,18 @@ type warmupGameStateRepository interface {
 	LoadBySessionID(ctx context.Context, sessionID string) (*state.GameState, error)
 }
 
+// WarmupWarning 表示预热阶段某个子来源失败但主流程继续。
+type WarmupWarning struct {
+	Source string
+	Err    error
+}
+
+// WarmupBuildResult 表示 best-effort 预热结果。
+type WarmupBuildResult struct {
+	Bundle   model.WarmupBundle
+	Warnings []WarmupWarning
+}
+
 // KnowledgeWarmupService 负责在 Agent 运行前构建轻量规则/设定预热摘要。
 type KnowledgeWarmupService struct {
 	ruleSearcher warmupSearcher
@@ -54,6 +66,36 @@ func (s *KnowledgeWarmupService) BuildWarmup(ctx context.Context, sessionID stri
 		BaseLoreSummary:       lore,
 		CharacterRulesSummary: character,
 	}, nil
+}
+
+// BuildWarmupBestEffort 聚合预热摘要；单个来源失败时记录 warning 并继续。
+func (s *KnowledgeWarmupService) BuildWarmupBestEffort(ctx context.Context, sessionID string) WarmupBuildResult {
+	result := WarmupBuildResult{
+		Warnings: make([]WarmupWarning, 0),
+	}
+
+	rules, err := s.buildBaseRulesSummary(ctx)
+	if err != nil {
+		result.Warnings = append(result.Warnings, WarmupWarning{Source: "base_rules", Err: err})
+	} else {
+		result.Bundle.BaseRulesSummary = rules
+	}
+
+	lore, err := s.buildBaseLoreSummary(ctx)
+	if err != nil {
+		result.Warnings = append(result.Warnings, WarmupWarning{Source: "base_lore", Err: err})
+	} else {
+		result.Bundle.BaseLoreSummary = lore
+	}
+
+	character, err := s.buildCharacterRulesSummary(ctx, sessionID)
+	if err != nil {
+		result.Warnings = append(result.Warnings, WarmupWarning{Source: "character_rules", Err: err})
+	} else {
+		result.Bundle.CharacterRulesSummary = character
+	}
+
+	return result
 }
 
 func (s *KnowledgeWarmupService) buildBaseRulesSummary(ctx context.Context) (string, error) {

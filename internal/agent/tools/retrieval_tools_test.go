@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	retrievalsearch "DND-AI-BOT/internal/retrieval/search"
@@ -102,16 +103,27 @@ func TestSearchLoreToolCallReturnsSearchResults(t *testing.T) {
 	}
 }
 
-func TestSearchLoreToolCallPropagatesSearcherError(t *testing.T) {
+func TestSearchLoreToolCallReturnsDegradedResultWhenSearcherFails(t *testing.T) {
 	searcher := &fakeKnowledgeSearcher{err: errors.New("search failed")}
 	tool := NewSearchLoreTool(searcher)
 
-	_, err := tool.Call(context.Background(), CallInput{
+	output, err := tool.Call(context.Background(), CallInput{
 		SessionID: "session-1",
 		Raw:       json.RawMessage(`{"query":"城市"}`),
 	})
-	if err == nil || err.Error() != "search failed" {
-		t.Fatalf("expected searcher error to propagate, got %v", err)
+	if err != nil {
+		t.Fatalf("expected degraded result instead of error, got %v", err)
+	}
+
+	result, ok := output.Content.(searchKnowledgeResult)
+	if !ok {
+		t.Fatalf("expected searchKnowledgeResult output, got %T", output.Content)
+	}
+	if !result.Degraded {
+		t.Fatalf("expected degraded search result, got %+v", result)
+	}
+	if !strings.Contains(result.Message, "知识库检索暂时不可用") {
+		t.Fatalf("expected degraded message, got %q", result.Message)
 	}
 }
 

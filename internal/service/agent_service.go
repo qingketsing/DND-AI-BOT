@@ -21,8 +21,9 @@ const (
 
 // AgentService 负责调 Runtime 完成一轮 Agent 回复，并集中记录运行日志。
 type AgentService struct {
-	runner AgentRunner
-	logger *log.Logger
+	runner   AgentRunner
+	logger   *log.Logger
+	fallback AgentFallbackResponder
 }
 
 // AgentReplyInput 定义发起一轮 Agent 回复所需的最小输入。
@@ -48,11 +49,30 @@ type AgentReplyResult struct {
 // AgentRunner 抽象一轮 Agent 执行能力，便于由 app 层适配 Runtime。
 type AgentRunner func(ctx context.Context, input AgentReplyInput) (AgentReplyResult, error)
 
+// AgentServiceOption 定义 AgentService 可选配置。
+type AgentServiceOption func(*AgentService)
+
 // NewAgentService 创建一个可复用的 Agent 服务。
-func NewAgentService(runner AgentRunner, logger *log.Logger) *AgentService {
-	return &AgentService{
-		runner: runner,
-		logger: logger,
+func NewAgentService(runner AgentRunner, logger *log.Logger, options ...AgentServiceOption) *AgentService {
+	service := &AgentService{
+		runner:   runner,
+		logger:   logger,
+		fallback: NewDefaultAgentFallbackResponder(),
+	}
+	for _, option := range options {
+		if option != nil {
+			option(service)
+		}
+	}
+	return service
+}
+
+// WithAgentFallbackResponder 注入自定义 Agent 兜底回复器。
+func WithAgentFallbackResponder(responder AgentFallbackResponder) AgentServiceOption {
+	return func(service *AgentService) {
+		if responder != nil {
+			service.fallback = responder
+		}
 	}
 }
 
@@ -70,8 +90,9 @@ func (s *AgentService) Reply(ctx context.Context, input AgentReplyInput) (AgentR
 
 	output, err := s.runner(ctx, input)
 	if err != nil {
-		s.logRunFailed(effectiveInput, err)
-		return AgentReplyResult{}, err
+		fallback := s.buildFallback(input, err)
+		s.logRunFallback(effectiveInput, fallback, err)
+		return AgentReplyResult{Reply: fallback.Reply}, nil
 	}
 
 	s.logRunFinished(effectiveInput, output)
@@ -114,6 +135,27 @@ func (s *AgentService) logRunFailed(input AgentReplyInput, err error) {
 	}
 
 	s.logger.Printf("agent run failed: session_id=%s error=%v", input.SessionID, err)
+}
+
+func (s *AgentService) logRunFallback(input AgentReplyInput, fallback AgentFallbackReply, err error) {
+	if s.logger == nil {
+		return
+	}
+
+	s.logger.Printf("agent run fallback: session_id=%s kind=%s error=%v", input.SessionID, fallback.Kind, err)
+}
+
+func (s *AgentService) buildFallback(input AgentReplyInput, err error) AgentFallbackReply {
+	responder := s.fallback
+	if responder == nil {
+		responder = NewDefaultAgentFallbackResponder()
+	}
+	return responder.BuildFallbackReply(AgentFallbackInput{
+		SessionID:   input.SessionID,
+		UserMessage: input.UserMessage,
+		Err:         err,
+		Kind:        inferAgentFailureKind(err),
+	})
 }
 
 // toolNamesFromSteps 从步骤记录中提取出本轮真正调用过的工具名。

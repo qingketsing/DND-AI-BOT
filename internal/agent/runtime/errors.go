@@ -9,4 +9,6 @@ var (
 	ErrInvalidModelOutput = errors.New("invalid model output")
 	// ErrStepLimitExceeded 表示本轮 ReAct 执行超过了最大步数限制。
 	ErrStepLimitExceeded = errors.New("step limit exceeded")
+	// ErrToolFailureLimitExceeded 表示工具连续失败次数超过上限。
+	ErrToolFailureLimitExceeded = errors.New("tool failure limit exceeded")
 )

@@ -30,6 +30,13 @@ type StepRecord struct {
 	Observation any             `json:"observation,omitempty"`
 }
 
+// ToolErrorObservation 表示工具执行失败后交还给模型的结构化观察结果。
+type ToolErrorObservation struct {
+	ToolName  string `json:"tool_name"`
+	Message   string `json:"message"`
+	Retryable bool   `json:"retryable"`
+}
+
 // ModelInput 定义传给模型适配层的统一输入。
 type ModelInput struct {
 	SessionID    string
