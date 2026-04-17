@@ -29,6 +29,7 @@ func RegisterDefaultTools(registry Registry, deps RegisterDependencies) error {
 		NewSpendGoldTool(deps.GameStateService),
 		NewSetSceneTool(deps.GameStateService),
 		NewUpsertQuestTool(deps.GameStateService),
+		NewCreateEncounterTool(deps.EncounterService),
 		NewGetEncounterTool(deps.EncounterService),
 		NewApplyDamageTool(deps.EncounterService),
 		NewHealTool(deps.EncounterService),

@@ -76,3 +76,14 @@ func (r *CompositeSessionMemoryRepository) LoadBySessionID(ctx context.Context, 
 
 	return value.(*model.SessionMemory), nil
 }
+
+// DeleteBySessionID 删除指定会话的长期记忆，并清理 Redis 缓存。
+func (r *CompositeSessionMemoryRepository) DeleteBySessionID(ctx context.Context, sessionID string) error {
+	if err := r.store.DeleteSessionMemoryBySessionID(ctx, sessionID); err != nil {
+		return err
+	}
+	if r.cache != nil {
+		_ = r.cache.DeleteBySessionID(ctx, sessionID)
+	}
+	return nil
+}

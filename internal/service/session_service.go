@@ -23,14 +23,20 @@ var (
 
 // SessionService 负责编排会话创建、读取和消息收发流程。
 type SessionService struct {
-	repository   repository.SessionRepository
-	agentService *AgentService
-	refresher    SessionMemoryRefresher
+	repository     repository.SessionRepository
+	agentService   *AgentService
+	refresher      SessionMemoryRefresher
+	deleteCleaners []SessionDeleteCleaner
 }
 
 // SessionMemoryRefresher 定义消息发送完成后的长期记忆刷新接口。
 type SessionMemoryRefresher interface {
 	RefreshIfNeeded(ctx context.Context, sessionID string, now time.Time) error
+}
+
+// SessionDeleteCleaner 定义删除会话后需要清理的会话级派生数据或缓存。
+type SessionDeleteCleaner interface {
+	DeleteBySessionID(ctx context.Context, sessionID string) error
 }
 
 // CreateSessionInput 定义创建会话时需要的最小输入。
@@ -61,6 +67,11 @@ func NewSessionService(repository repository.SessionRepository, agentServices ..
 // SetMemoryRefresher 注入可选的长期记忆刷新器。
 func (s *SessionService) SetMemoryRefresher(refresher SessionMemoryRefresher) {
 	s.refresher = refresher
+}
+
+// SetDeleteCleaners 注入删除会话后需要执行的派生数据清理器。
+func (s *SessionService) SetDeleteCleaners(cleaners ...SessionDeleteCleaner) {
+	s.deleteCleaners = append([]SessionDeleteCleaner(nil), cleaners...)
 }
 
 // CreateSession 创建并保存一个新会话。
@@ -115,7 +126,12 @@ func (s *SessionService) DeleteSession(ctx context.Context, userID string, sessi
 		return err
 	}
 
-	return s.repository.Delete(ctx, strings.TrimSpace(sessionID))
+	cleanSessionID := strings.TrimSpace(sessionID)
+	if err := s.repository.Delete(ctx, cleanSessionID); err != nil {
+		return err
+	}
+	s.cleanupDeletedSession(ctx, cleanSessionID)
+	return nil
 }
 
 // SendMessage 将用户消息写入会话，并通过 AgentService 或 mock 逻辑生成回复。
@@ -186,4 +202,13 @@ func (s *SessionService) refreshSessionMemoryIfNeeded(ctx context.Context, sessi
 		return nil
 	}
 	return s.refresher.RefreshIfNeeded(ctx, sessionID, now)
+}
+
+func (s *SessionService) cleanupDeletedSession(ctx context.Context, sessionID string) {
+	for _, cleaner := range s.deleteCleaners {
+		if cleaner == nil {
+			continue
+		}
+		_ = cleaner.DeleteBySessionID(ctx, sessionID)
+	}
 }

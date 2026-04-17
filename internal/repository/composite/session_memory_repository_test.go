@@ -80,6 +80,22 @@ func TestSessionMemoryRepositorySaveWritesStoreAndDeletesCache(t *testing.T) {
 	}
 }
 
+func TestSessionMemoryRepositoryDeleteBySessionIDDeletesStoreAndCache(t *testing.T) {
+	cache := &fakeSessionMemoryCache{}
+	store := &fakeSessionMemoryStore{}
+	repo := NewCompositeSessionMemoryRepository(store, cache, CachePolicy{})
+
+	if err := repo.DeleteBySessionID(context.Background(), "session-1"); err != nil {
+		t.Fatalf("expected delete to succeed, got %v", err)
+	}
+	if store.deleteCalls != 1 {
+		t.Fatalf("expected store delete to be called once, got %d", store.deleteCalls)
+	}
+	if cache.deleteCalls != 1 {
+		t.Fatalf("expected cache delete to be called once, got %d", cache.deleteCalls)
+	}
+}
+
 func newTestSessionMemory() *model.SessionMemory {
 	return &model.SessionMemory{
 		SessionID:        "session-1",
@@ -92,11 +108,12 @@ func newTestSessionMemory() *model.SessionMemory {
 }
 
 type fakeSessionMemoryStore struct {
-	memory    *model.SessionMemory
-	getErr    error
-	saveErr   error
-	getCalls  int
-	saveCalls int
+	memory      *model.SessionMemory
+	getErr      error
+	saveErr     error
+	getCalls    int
+	saveCalls   int
+	deleteCalls int
 }
 
 func (f *fakeSessionMemoryStore) SaveSessionMemory(ctx context.Context, memory *model.SessionMemory) error {
@@ -116,15 +133,20 @@ func (f *fakeSessionMemoryStore) GetSessionMemoryBySessionID(ctx context.Context
 	return f.memory, nil
 }
 
+func (f *fakeSessionMemoryStore) DeleteSessionMemoryBySessionID(ctx context.Context, sessionID string) error {
+	f.deleteCalls++
+	return nil
+}
+
 type fakeSessionMemoryCache struct {
-	memory            *model.SessionMemory
-	getErr            error
-	setErr            error
-	setNotFoundErr    error
-	deleteErr         error
-	setCalls          int
-	setNotFoundCalls  int
-	deleteCalls       int
+	memory           *model.SessionMemory
+	getErr           error
+	setErr           error
+	setNotFoundErr   error
+	deleteErr        error
+	setCalls         int
+	setNotFoundCalls int
+	deleteCalls      int
 }
 
 func (f *fakeSessionMemoryCache) GetBySessionID(ctx context.Context, sessionID string) (*model.SessionMemory, error) {

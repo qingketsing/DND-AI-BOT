@@ -76,3 +76,14 @@ func (r *CompositeEncounterRepository) LoadBySessionID(ctx context.Context, sess
 
 	return value.(*combat.Encounter), nil
 }
+
+// DeleteBySessionID 删除指定会话的战斗状态，并清理 Redis 缓存。
+func (r *CompositeEncounterRepository) DeleteBySessionID(ctx context.Context, sessionID string) error {
+	if err := r.store.DeleteEncounterBySessionID(ctx, sessionID); err != nil {
+		return err
+	}
+	if r.cache != nil {
+		_ = r.cache.DeleteBySessionID(ctx, sessionID)
+	}
+	return nil
+}

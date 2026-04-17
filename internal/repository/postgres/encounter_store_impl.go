@@ -63,3 +63,9 @@ func (s *PGEncounterStore) GetEncounterBySessionID(ctx context.Context, sessionI
 
 	return &encounter, nil
 }
+
+// DeleteEncounterBySessionID 按会话 ID 删除战斗状态；不存在时也视为清理成功。
+func (s *PGEncounterStore) DeleteEncounterBySessionID(ctx context.Context, sessionID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM encounters WHERE session_id = $1`, sessionID)
+	return err
+}

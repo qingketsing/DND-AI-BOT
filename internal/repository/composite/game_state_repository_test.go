@@ -97,6 +97,22 @@ func TestGameStateRepositorySaveWritesStoreAndDeletesCache(t *testing.T) {
 	}
 }
 
+func TestGameStateRepositoryDeleteBySessionIDDeletesStoreAndCache(t *testing.T) {
+	cache := &fakeGameStateCache{}
+	store := &fakeGameStateStore{}
+	repo := NewCompositeGameStateRepository(store, cache, CachePolicy{})
+
+	if err := repo.DeleteBySessionID(context.Background(), "session-1"); err != nil {
+		t.Fatalf("expected delete to succeed, got %v", err)
+	}
+	if store.deleteCalls != 1 {
+		t.Fatalf("expected store delete to be called once, got %d", store.deleteCalls)
+	}
+	if cache.deleteCalls != 1 {
+		t.Fatalf("expected cache delete to be called once, got %d", cache.deleteCalls)
+	}
+}
+
 func newTestGameState() *state.GameState {
 	now := time.Date(2026, 4, 4, 12, 0, 0, 0, time.UTC)
 	player := state.PlayerState{
@@ -122,6 +138,7 @@ type fakeGameStateStore struct {
 	upsertErr   error
 	getCalls    int
 	upsertCalls int
+	deleteCalls int
 }
 
 func (f *fakeGameStateStore) UpsertGameState(ctx context.Context, state *state.GameState) error {
@@ -139,6 +156,11 @@ func (f *fakeGameStateStore) GetGameStateBySessionID(ctx context.Context, sessio
 		return nil, f.getErr
 	}
 	return f.state, nil
+}
+
+func (f *fakeGameStateStore) DeleteGameStateBySessionID(ctx context.Context, sessionID string) error {
+	f.deleteCalls++
+	return nil
 }
 
 type fakeGameStateCache struct {

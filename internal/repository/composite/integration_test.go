@@ -431,6 +431,7 @@ func applyMigrations(t *testing.T, ctx context.Context, db *sql.DB) {
 		"002_create_session_messages.sql",
 		"003_create_game_states.sql",
 		"004_create_encounters.sql",
+		"010_add_session_cascade_to_game_state_and_encounters.sql",
 	}
 
 	for _, file := range files {

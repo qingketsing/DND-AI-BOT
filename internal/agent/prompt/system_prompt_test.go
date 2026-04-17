@@ -49,3 +49,27 @@ func TestDefaultSystemPromptRequiresDraftUpdatesForPartialCharacterInfo(t *testi
 		t.Fatalf("expected prompt to mention upsert_character_draft for partial character info, got %q", DefaultSystemPrompt)
 	}
 }
+
+func TestDefaultSystemPromptRequiresCreateEncounterBeforeCombatTools(t *testing.T) {
+	for _, expected := range []string{
+		"create_encounter",
+		"apply_damage",
+		"不要只用文本宣布战斗开始",
+	} {
+		if !strings.Contains(DefaultSystemPrompt, expected) {
+			t.Fatalf("expected prompt to mention %q for structured combat state, got %q", expected, DefaultSystemPrompt)
+		}
+	}
+}
+
+func TestDefaultSystemPromptForbidsInventingStateValueSources(t *testing.T) {
+	for _, expected := range []string{
+		"不要编造原因解释该数值",
+		"来源未确认",
+		"玩家追问“这个数值从哪来”",
+	} {
+		if !strings.Contains(DefaultSystemPrompt, expected) {
+			t.Fatalf("expected prompt to mention %q for state value provenance, got %q", expected, DefaultSystemPrompt)
+		}
+	}
+}

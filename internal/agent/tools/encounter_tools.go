@@ -2,13 +2,17 @@ package tools
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"time"
 
 	"DND-AI-BOT/internal/game/combat"
+	"DND-AI-BOT/internal/repository"
 	"DND-AI-BOT/internal/service"
 )
 
 type encounterToolService interface {
+	Create(ctx context.Context, input service.CreateEncounterInput, now time.Time) (*combat.Encounter, error)
 	GetBySessionID(ctx context.Context, sessionID string) (*combat.Encounter, error)
 	ApplyDamage(ctx context.Context, input service.ApplyDamageInput, now time.Time) (*combat.Encounter, error)
 	Heal(ctx context.Context, input service.HealInput, now time.Time) (*combat.Encounter, error)
@@ -45,9 +49,96 @@ type canActArgs struct {
 	TargetID string `json:"target_id"`
 }
 
+type createEncounterArgs struct {
+	ID         string                `json:"id"`
+	Combatants []createCombatantArgs `json:"combatants"`
+}
+
+type createCombatantArgs struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Side       string `json:"side"`
+	CurrentHP  int    `json:"current_hp"`
+	MaxHP      int    `json:"max_hp"`
+	ArmorClass int    `json:"armor_class"`
+	Initiative int    `json:"initiative"`
+}
+
 // CanActResult 表示检查行动能力工具的结构化结果。
 type CanActResult struct {
 	CanAct bool `json:"can_act"`
+}
+
+// EncounterMissingResult 表示当前会话没有结构化战斗状态。
+type EncounterMissingResult struct {
+	EncounterExists         bool   `json:"encounter_exists"`
+	RequiresCreateEncounter bool   `json:"requires_create_encounter"`
+	Message                 string `json:"message"`
+}
+
+// CreateEncounterTool 用于初始化当前会话的结构化战斗状态。
+type CreateEncounterTool struct{ service encounterToolService }
+
+// NewCreateEncounterTool 创建战斗初始化工具。
+func NewCreateEncounterTool(service encounterToolService) *CreateEncounterTool {
+	return &CreateEncounterTool{service: service}
+}
+
+// Spec 返回战斗初始化工具的元信息描述。
+func (t *CreateEncounterTool) Spec() ToolSpec {
+	return ToolSpec{
+		Name:        "create_encounter",
+		Description: "创建当前会话的结构化战斗状态；进入先攻、回合制行动或战斗前必须先调用。玩家角色的 HP、AC、先攻必须来自已确认的 game state、最近上下文或明确规则推导，不能随意估算。",
+		InputSchema: objectSchema(map[string]any{
+			"id": map[string]any{"type": "string"},
+			"combatants": map[string]any{
+				"type": "array",
+				"items": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"id":          map[string]any{"type": "string"},
+						"name":        map[string]any{"type": "string"},
+						"side":        map[string]any{"type": "string"},
+						"current_hp":  map[string]any{"type": "integer"},
+						"max_hp":      map[string]any{"type": "integer"},
+						"armor_class": map[string]any{"type": "integer"},
+						"initiative":  map[string]any{"type": "integer"},
+					},
+					"required":             []string{"id", "name", "side", "max_hp", "armor_class", "initiative"},
+					"additionalProperties": false,
+				},
+			},
+		}, "combatants"),
+	}
+}
+
+// Call 解析参数并创建战斗状态。
+func (t *CreateEncounterTool) Call(ctx context.Context, input CallInput) (CallOutput, error) {
+	var args createEncounterArgs
+	if err := decodeToolInput(input.Raw, &args); err != nil {
+		return CallOutput{}, err
+	}
+	encounterID := args.ID
+	if encounterID == "" {
+		encounterID = fmt.Sprintf("encounter-%d", input.Now.UnixNano())
+	}
+	combatants := make([]combat.Combatant, 0, len(args.Combatants))
+	for _, arg := range args.Combatants {
+		combatant := combat.NewCombatant(arg.ID, arg.Name, combat.CombatSide(arg.Side), arg.MaxHP, arg.ArmorClass, arg.Initiative)
+		if arg.CurrentHP > 0 {
+			combatant.CurrentHP = arg.CurrentHP
+		}
+		combatants = append(combatants, combatant)
+	}
+	encounter, err := t.service.Create(ctx, service.CreateEncounterInput{
+		ID:         encounterID,
+		SessionID:  input.SessionID,
+		Combatants: combatants,
+	}, input.Now)
+	if err != nil {
+		return CallOutput{}, err
+	}
+	return newToolOutput(t.Spec().Name, encounter), nil
 }
 
 // GetEncounterTool 用于读取当前战斗状态。
@@ -71,6 +162,9 @@ func (t *GetEncounterTool) Spec() ToolSpec {
 func (t *GetEncounterTool) Call(ctx context.Context, input CallInput) (CallOutput, error) {
 	encounter, err := t.service.GetBySessionID(ctx, input.SessionID)
 	if err != nil {
+		if errors.Is(err, repository.ErrEncounterNotFound) {
+			return newToolOutput(t.Spec().Name, newEncounterMissingResult()), nil
+		}
 		return CallOutput{}, err
 	}
 	return newToolOutput(t.Spec().Name, encounter), nil
@@ -108,6 +202,9 @@ func (t *ApplyDamageTool) Call(ctx context.Context, input CallInput) (CallOutput
 		Amount:    args.Amount,
 	}, input.Now)
 	if err != nil {
+		if errors.Is(err, repository.ErrEncounterNotFound) {
+			return newToolOutput(t.Spec().Name, newEncounterMissingResult()), nil
+		}
 		return CallOutput{}, err
 	}
 	return newToolOutput(t.Spec().Name, encounter), nil
@@ -143,6 +240,9 @@ func (t *HealTool) Call(ctx context.Context, input CallInput) (CallOutput, error
 		Amount:    args.Amount,
 	}, input.Now)
 	if err != nil {
+		if errors.Is(err, repository.ErrEncounterNotFound) {
+			return newToolOutput(t.Spec().Name, newEncounterMissingResult()), nil
+		}
 		return CallOutput{}, err
 	}
 	return newToolOutput(t.Spec().Name, encounter), nil
@@ -171,6 +271,9 @@ func (t *AdvanceTurnTool) Call(ctx context.Context, input CallInput) (CallOutput
 		SessionID: input.SessionID,
 	}, input.Now)
 	if err != nil {
+		if errors.Is(err, repository.ErrEncounterNotFound) {
+			return newToolOutput(t.Spec().Name, newEncounterMissingResult()), nil
+		}
 		return CallOutput{}, err
 	}
 	return newToolOutput(t.Spec().Name, encounter), nil
@@ -216,6 +319,9 @@ func (t *AddEffectTool) Call(ctx context.Context, input CallInput) (CallOutput, 
 		},
 	}, input.Now)
 	if err != nil {
+		if errors.Is(err, repository.ErrEncounterNotFound) {
+			return newToolOutput(t.Spec().Name, newEncounterMissingResult()), nil
+		}
 		return CallOutput{}, err
 	}
 	return newToolOutput(t.Spec().Name, encounter), nil
@@ -253,6 +359,9 @@ func (t *RemoveEffectTool) Call(ctx context.Context, input CallInput) (CallOutpu
 		EffectID:  args.EffectID,
 	}, input.Now)
 	if err != nil {
+		if errors.Is(err, repository.ErrEncounterNotFound) {
+			return newToolOutput(t.Spec().Name, newEncounterMissingResult()), nil
+		}
 		return CallOutput{}, err
 	}
 	return newToolOutput(t.Spec().Name, encounter), nil
@@ -286,7 +395,18 @@ func (t *CanActTool) Call(ctx context.Context, input CallInput) (CallOutput, err
 		TargetID:  args.TargetID,
 	})
 	if err != nil {
+		if errors.Is(err, repository.ErrEncounterNotFound) {
+			return newToolOutput(t.Spec().Name, newEncounterMissingResult()), nil
+		}
 		return CallOutput{}, err
 	}
 	return newToolOutput(t.Spec().Name, CanActResult{CanAct: canAct}), nil
+}
+
+func newEncounterMissingResult() EncounterMissingResult {
+	return EncounterMissingResult{
+		EncounterExists:         false,
+		RequiresCreateEncounter: true,
+		Message:                 "当前会话没有结构化战斗状态，请先调用 create_encounter 创建 encounter。",
+	}
 }

@@ -10,4 +10,5 @@ import (
 type EncounterStore interface {
 	UpsertEncounter(ctx context.Context, encounter *combat.Encounter) error
 	GetEncounterBySessionID(ctx context.Context, sessionID string) (*combat.Encounter, error)
+	DeleteEncounterBySessionID(ctx context.Context, sessionID string) error
 }

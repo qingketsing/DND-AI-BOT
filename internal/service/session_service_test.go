@@ -297,6 +297,51 @@ func TestDeleteSessionDeletesOwnedSession(t *testing.T) {
 	}
 }
 
+func TestDeleteSessionRunsDeleteCleanersAfterDeletingOwnedSession(t *testing.T) {
+	sessionRepository := memory.NewSessionRepository()
+	cleaner := &fakeSessionDeleteCleaner{}
+	service := NewSessionService(sessionRepository)
+	service.SetDeleteCleaners(cleaner)
+	ctx := context.Background()
+	now := time.Date(2026, 4, 17, 12, 0, 0, 0, time.UTC)
+
+	session, err := service.CreateSession(ctx, CreateSessionInput{UserID: "user-1", Channel: model.ChannelWeb}, now)
+	if err != nil {
+		t.Fatalf("expected create session to succeed, got %v", err)
+	}
+
+	if err := service.DeleteSession(ctx, "user-1", session.ID); err != nil {
+		t.Fatalf("expected delete session to succeed, got %v", err)
+	}
+
+	if cleaner.calls != 1 || cleaner.sessionID != session.ID {
+		t.Fatalf("expected cleaner to run once for session %q, got %+v", session.ID, cleaner)
+	}
+}
+
+func TestDeleteSessionIgnoresDeleteCleanerError(t *testing.T) {
+	sessionRepository := memory.NewSessionRepository()
+	cleaner := &fakeSessionDeleteCleaner{err: errors.New("redis unavailable")}
+	service := NewSessionService(sessionRepository)
+	service.SetDeleteCleaners(cleaner)
+	ctx := context.Background()
+	now := time.Date(2026, 4, 17, 12, 0, 0, 0, time.UTC)
+
+	session, err := service.CreateSession(ctx, CreateSessionInput{UserID: "user-1", Channel: model.ChannelWeb}, now)
+	if err != nil {
+		t.Fatalf("expected create session to succeed, got %v", err)
+	}
+
+	if err := service.DeleteSession(ctx, "user-1", session.ID); err != nil {
+		t.Fatalf("expected delete session to ignore cleaner error, got %v", err)
+	}
+
+	_, err = service.GetSessionForUser(ctx, "user-1", session.ID)
+	if !errors.Is(err, repository.ErrSessionNotFound) {
+		t.Fatalf("expected session to remain deleted, got %v", err)
+	}
+}
+
 func TestDeleteSessionRejectsDifferentOwner(t *testing.T) {
 	repository := memory.NewSessionRepository()
 	service := NewSessionService(repository)
@@ -326,5 +371,18 @@ func (f *fakeSessionMemoryRefresher) RefreshIfNeeded(ctx context.Context, sessio
 	f.calls++
 	f.lastSessionID = sessionID
 	f.lastNow = now
+	return f.err
+}
+
+type fakeSessionDeleteCleaner struct {
+	calls     int
+	sessionID string
+	err       error
+}
+
+func (f *fakeSessionDeleteCleaner) DeleteBySessionID(ctx context.Context, sessionID string) error {
+	_ = ctx
+	f.calls++
+	f.sessionID = sessionID
 	return f.err
 }

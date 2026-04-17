@@ -75,3 +75,9 @@ func (s *PGGameStateStore) GetGameStateBySessionID(ctx context.Context, sessionI
 		UpdatedAt:    updatedAt.Time,
 	}, nil
 }
+
+// DeleteGameStateBySessionID 按会话 ID 删除游戏进度；不存在时也视为清理成功。
+func (s *PGGameStateStore) DeleteGameStateBySessionID(ctx context.Context, sessionID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM game_states WHERE session_id = $1`, sessionID)
+	return err
+}

@@ -10,4 +10,5 @@ import (
 type GameStateStore interface {
 	UpsertGameState(ctx context.Context, state *state.GameState) error
 	GetGameStateBySessionID(ctx context.Context, sessionID string) (*state.GameState, error)
+	DeleteGameStateBySessionID(ctx context.Context, sessionID string) error
 }

@@ -4,12 +4,64 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"DND-AI-BOT/internal/game/combat"
+	"DND-AI-BOT/internal/repository"
 	"DND-AI-BOT/internal/service"
 )
+
+func TestCreateEncounterToolCallMapsArgs(t *testing.T) {
+	svc := &fakeEncounterToolService{result: newToolEncounter()}
+	tool := NewCreateEncounterTool(svc)
+	now := time.Date(2026, 4, 16, 18, 0, 0, 0, time.UTC)
+
+	_, err := tool.Call(context.Background(), CallInput{
+		SessionID: "session-1",
+		Raw: json.RawMessage(`{
+			"id":"encounter-custom",
+			"combatants":[
+				{"id":"hero-1","name":"青稞","side":"party","current_hp":7,"max_hp":7,"armor_class":12,"initiative":17},
+				{"id":"goblin-1","name":"地精#1","side":"enemy","current_hp":7,"max_hp":7,"armor_class":15,"initiative":12}
+			]
+		}`),
+		Now: now,
+	})
+	if err != nil {
+		t.Fatalf("expected call to succeed, got %v", err)
+	}
+	if svc.createInput.ID != "encounter-custom" || svc.createInput.SessionID != "session-1" {
+		t.Fatalf("expected create input ids to be mapped, got %+v", svc.createInput)
+	}
+	if len(svc.createInput.Combatants) != 2 {
+		t.Fatalf("expected two combatants, got %d", len(svc.createInput.Combatants))
+	}
+	goblin := svc.createInput.Combatants[1]
+	if goblin.ID != "goblin-1" || goblin.Side != combat.CombatSideEnemy || goblin.CurrentHP != 7 || goblin.ArmorClass != 15 || goblin.Initiative != 12 {
+		t.Fatalf("expected goblin combatant to be mapped, got %+v", goblin)
+	}
+	if !svc.createNow.Equal(now) {
+		t.Fatalf("expected create time %v, got %v", now, svc.createNow)
+	}
+}
+
+func TestCreateEncounterToolSpecRequiresConfirmedPlayerCombatStats(t *testing.T) {
+	spec := NewCreateEncounterTool(&fakeEncounterToolService{}).Spec()
+	for _, expected := range []string{
+		"玩家角色",
+		"HP",
+		"AC",
+		"先攻",
+		"已确认",
+		"规则推导",
+	} {
+		if !strings.Contains(spec.Description, expected) {
+			t.Fatalf("expected create_encounter description to mention %q, got %q", expected, spec.Description)
+		}
+	}
+}
 
 func TestGetEncounterToolCallUsesSessionID(t *testing.T) {
 	svc := &fakeEncounterToolService{result: newToolEncounter()}
@@ -142,10 +194,32 @@ func TestEncounterToolsRejectInvalidInput(t *testing.T) {
 	}
 }
 
+func TestApplyDamageToolReturnsMissingEncounterResultWhenEncounterNotFound(t *testing.T) {
+	tool := NewApplyDamageTool(&fakeEncounterToolService{err: repository.ErrEncounterNotFound})
+
+	output, err := tool.Call(context.Background(), CallInput{
+		SessionID: "session-1",
+		Raw:       json.RawMessage(`{"target_id":"goblin-1","amount":5}`),
+		Now:       time.Date(2026, 4, 16, 18, 10, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("expected encounter not found to be returned as tool content, got error %v", err)
+	}
+	result, ok := output.Content.(EncounterMissingResult)
+	if !ok {
+		t.Fatalf("expected EncounterMissingResult, got %#v", output.Content)
+	}
+	if result.EncounterExists || !result.RequiresCreateEncounter {
+		t.Fatalf("expected missing encounter result to require create_encounter, got %+v", result)
+	}
+}
+
 type fakeEncounterToolService struct {
 	result            *combat.Encounter
 	err               error
 	canActResult      bool
+	createInput       service.CreateEncounterInput
+	createNow         time.Time
 	getSessionID      string
 	applyDamageInput  service.ApplyDamageInput
 	applyDamageNow    time.Time
@@ -169,8 +243,8 @@ func newToolEncounter() *combat.Encounter {
 
 func (f *fakeEncounterToolService) Create(ctx context.Context, input service.CreateEncounterInput, now time.Time) (*combat.Encounter, error) {
 	_ = ctx
-	_ = input
-	_ = now
+	f.createInput = input
+	f.createNow = now
 	return f.result, f.err
 }
 

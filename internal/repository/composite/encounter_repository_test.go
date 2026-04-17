@@ -97,6 +97,22 @@ func TestEncounterRepositorySaveWritesStoreAndDeletesCache(t *testing.T) {
 	}
 }
 
+func TestEncounterRepositoryDeleteBySessionIDDeletesStoreAndCache(t *testing.T) {
+	cache := &fakeEncounterCache{}
+	store := &fakeEncounterStore{}
+	repo := NewCompositeEncounterRepository(store, cache, CachePolicy{})
+
+	if err := repo.DeleteBySessionID(context.Background(), "session-1"); err != nil {
+		t.Fatalf("expected delete to succeed, got %v", err)
+	}
+	if store.deleteCalls != 1 {
+		t.Fatalf("expected store delete to be called once, got %d", store.deleteCalls)
+	}
+	if cache.deleteCalls != 1 {
+		t.Fatalf("expected cache delete to be called once, got %d", cache.deleteCalls)
+	}
+}
+
 func newTestEncounter() *combat.Encounter {
 	now := time.Date(2026, 4, 4, 12, 0, 0, 0, time.UTC)
 	combatants := []combat.Combatant{
@@ -115,6 +131,7 @@ type fakeEncounterStore struct {
 	upsertErr   error
 	getCalls    int
 	upsertCalls int
+	deleteCalls int
 }
 
 func (f *fakeEncounterStore) UpsertEncounter(ctx context.Context, encounter *combat.Encounter) error {
@@ -132,6 +149,11 @@ func (f *fakeEncounterStore) GetEncounterBySessionID(ctx context.Context, sessio
 		return nil, f.getErr
 	}
 	return f.encounter, nil
+}
+
+func (f *fakeEncounterStore) DeleteEncounterBySessionID(ctx context.Context, sessionID string) error {
+	f.deleteCalls++
+	return nil
 }
 
 type fakeEncounterCache struct {

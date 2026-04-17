@@ -10,4 +10,5 @@ import (
 type SessionMemoryStore interface {
 	SaveSessionMemory(ctx context.Context, memory *model.SessionMemory) error
 	GetSessionMemoryBySessionID(ctx context.Context, sessionID string) (*model.SessionMemory, error)
+	DeleteSessionMemoryBySessionID(ctx context.Context, sessionID string) error
 }

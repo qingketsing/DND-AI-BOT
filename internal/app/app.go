@@ -84,12 +84,18 @@ func NewApp(deps *bootstrap.RuntimeDependencies) (*App, error) {
 			return service.AgentReplyResult{}, err
 		}
 		systemPrompt := agentprompt.ComposeSystemPrompt(input.SystemPrompt, warmup)
-		memory, err := sessionMemoryService.GetBySessionID(ctx, input.SessionID)
+		preloadedContextPrompt, err := buildPreloadedContextPrompt(ctx, preloadedContextInput{
+			SessionID:           input.SessionID,
+			ContextLimit:        input.ContextLimit,
+			ContextProvider:     contextProvider,
+			GameStateReader:     gameStateService,
+			SessionMemoryReader: sessionMemoryService,
+		})
 		if err != nil {
 			return service.AgentReplyResult{}, err
 		}
-		if memoryPrompt := agentprompt.ComposeSessionMemoryPrompt(memory); strings.TrimSpace(memoryPrompt) != "" {
-			systemPrompt = strings.TrimSpace(systemPrompt + "\n\n" + memoryPrompt)
+		if strings.TrimSpace(preloadedContextPrompt) != "" {
+			systemPrompt = strings.TrimSpace(systemPrompt + "\n\n" + preloadedContextPrompt)
 		}
 
 		output, err := agentRuntime.Runtime.Run(ctx, agentruntime.RuntimeInput{
@@ -124,6 +130,17 @@ func NewApp(deps *bootstrap.RuntimeDependencies) (*App, error) {
 	)
 	sessionService := service.NewSessionService(sessionRepository, agentService)
 	sessionService.SetMemoryRefresher(sessionMemoryRefresher)
+	sessionDeleteCleaners := make([]service.SessionDeleteCleaner, 0, 3)
+	if cleaner, ok := gameStateRepository.(service.SessionDeleteCleaner); ok {
+		sessionDeleteCleaners = append(sessionDeleteCleaners, cleaner)
+	}
+	if cleaner, ok := encounterRepository.(service.SessionDeleteCleaner); ok {
+		sessionDeleteCleaners = append(sessionDeleteCleaners, cleaner)
+	}
+	if cleaner, ok := sessionMemoryRepository.(service.SessionDeleteCleaner); ok {
+		sessionDeleteCleaners = append(sessionDeleteCleaners, cleaner)
+	}
+	sessionService.SetDeleteCleaners(sessionDeleteCleaners...)
 	authHandler := httpHandler.NewAuthHandler(authService)
 	authMiddleware := httpMiddleware.NewAuthMiddleware(authService)
 	sessionHandler := httpHandler.NewSessionHandler(sessionService)

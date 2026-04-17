@@ -23,8 +23,8 @@ func TestRegisterDefaultToolsRegistersAllPlannedTools(t *testing.T) {
 	}
 
 	specs := registry.List()
-	if len(specs) != 23 {
-		t.Fatalf("expected 23 registered tools, got %d", len(specs))
+	if len(specs) != 24 {
+		t.Fatalf("expected 24 registered tools, got %d", len(specs))
 	}
 
 	expected := []string{
@@ -36,6 +36,7 @@ func TestRegisterDefaultToolsRegistersAllPlannedTools(t *testing.T) {
 		"apply_damage",
 		"can_act",
 		"create_character",
+		"create_encounter",
 		"get_agent_context",
 		"get_encounter",
 		"get_game_state",

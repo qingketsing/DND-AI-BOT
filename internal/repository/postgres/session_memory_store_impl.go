@@ -85,3 +85,9 @@ func (s *PGSessionMemoryStore) GetSessionMemoryBySessionID(ctx context.Context, 
 		UpdatedAt:        updatedAt.Time,
 	}, nil
 }
+
+// DeleteSessionMemoryBySessionID 按会话 ID 删除长期记忆；不存在时也视为清理成功。
+func (s *PGSessionMemoryStore) DeleteSessionMemoryBySessionID(ctx context.Context, sessionID string) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM session_memories WHERE session_id = $1`, sessionID)
+	return err
+}

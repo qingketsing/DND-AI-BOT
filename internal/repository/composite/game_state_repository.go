@@ -76,3 +76,14 @@ func (r *CompositeGameStateRepository) LoadBySessionID(ctx context.Context, sess
 
 	return value.(*state.GameState), nil
 }
+
+// DeleteBySessionID 删除指定会话的游戏进度，并清理 Redis 缓存。
+func (r *CompositeGameStateRepository) DeleteBySessionID(ctx context.Context, sessionID string) error {
+	if err := r.store.DeleteGameStateBySessionID(ctx, sessionID); err != nil {
+		return err
+	}
+	if r.cache != nil {
+		_ = r.cache.DeleteBySessionID(ctx, sessionID)
+	}
+	return nil
+}
