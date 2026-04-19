@@ -9,6 +9,7 @@ import (
 
 	"DND-AI-BOT/internal/app"
 	"DND-AI-BOT/internal/bootstrap"
+	"DND-AI-BOT/internal/observability"
 )
 
 const defaultHTTPAddr = ":8080"
@@ -16,6 +17,8 @@ const defaultHTTPAddr = ":8080"
 // main 负责初始化依赖、执行 migration 并启动 HTTP 服务。
 func main() {
 	logger := log.Default()
+	structuredLogger := observability.DefaultLogger()
+	metrics := observability.NewMetrics(nil)
 
 	config, err := bootstrap.LoadDependencyConfig()
 	if err != nil {
@@ -37,7 +40,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	application, err := app.NewApp(deps)
+	application, err := app.NewApp(deps, app.WithLogger(structuredLogger), app.WithMetrics(metrics))
 	if err != nil {
 		log.Fatal(err)
 	}

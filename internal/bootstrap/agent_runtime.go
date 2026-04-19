@@ -8,6 +8,7 @@ import (
 	agentruntime "DND-AI-BOT/internal/agent/runtime"
 	"DND-AI-BOT/internal/agent/tools"
 	"DND-AI-BOT/internal/game/rules"
+	"DND-AI-BOT/internal/observability"
 	retrievalsearch "DND-AI-BOT/internal/retrieval/search"
 	"DND-AI-BOT/internal/service"
 )
@@ -34,6 +35,7 @@ type AgentRuntimeInput struct {
 	RuleEngine       rules.RuleEngine
 	RuleSearcher     retrievalsearch.Searcher
 	LoreSearcher     retrievalsearch.Searcher
+	Metrics          *observability.Metrics
 }
 
 // BuildAgentRuntime 将模型层、工具层和 Runtime 组装为一套可运行的 Agent 内核。
@@ -46,6 +48,7 @@ func BuildAgentRuntime(input AgentRuntimeInput) (*AgentRuntimeDependencies, erro
 	if err != nil {
 		return nil, err
 	}
+	modelAdapter = client.NewObservedModelAdapter(modelAdapter, config, input.Metrics)
 
 	ruleSearcher := input.RuleSearcher
 	loreSearcher := input.LoreSearcher
@@ -96,5 +99,6 @@ func buildToolRuntimeInput(
 		RuleEngine:       input.RuleEngine,
 		RuleSearcher:     ruleSearcher,
 		LoreSearcher:     loreSearcher,
+		Metrics:          input.Metrics,
 	}
 }

@@ -2,6 +2,7 @@ package tools
 
 import (
 	agentcontext "DND-AI-BOT/internal/agent/context"
+	"DND-AI-BOT/internal/observability"
 	retrievalsearch "DND-AI-BOT/internal/retrieval/search"
 )
 
@@ -13,6 +14,7 @@ type RegisterDependencies struct {
 	RuleEngine       ruleToolEngine
 	RuleSearcher     retrievalsearch.Searcher
 	LoreSearcher     retrievalsearch.Searcher
+	Metrics          *observability.Metrics
 }
 
 // RegisterDefaultTools 将当前默认工具集合一次性注册到注册表中。
@@ -42,10 +44,10 @@ func RegisterDefaultTools(registry Registry, deps RegisterDependencies) error {
 		NewSkillCheckTool(deps.RuleEngine),
 	}
 	if deps.RuleSearcher != nil {
-		tools = append(tools, NewSearchRulesTool(deps.RuleSearcher))
+		tools = append(tools, NewSearchRulesTool(deps.RuleSearcher, WithSearchToolMetrics(deps.Metrics)))
 	}
 	if deps.LoreSearcher != nil {
-		tools = append(tools, NewSearchLoreTool(deps.LoreSearcher))
+		tools = append(tools, NewSearchLoreTool(deps.LoreSearcher, WithSearchToolMetrics(deps.Metrics)))
 	}
 
 	for _, tool := range tools {

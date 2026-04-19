@@ -3,7 +3,11 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+
+	"DND-AI-BOT/internal/observability"
 	retrievalsearch "DND-AI-BOT/internal/retrieval/search"
 )
 
@@ -21,12 +25,33 @@ type searchKnowledgeResult struct {
 	Message       string                         `json:"message,omitempty"`
 }
 
-type SearchRulesTool struct {
-	searcher retrievalsearch.Searcher
+type searchToolOptions struct {
+	metrics *observability.Metrics
 }
 
-func NewSearchRulesTool(searcher retrievalsearch.Searcher) *SearchRulesTool {
-	return &SearchRulesTool{searcher: searcher}
+// SearchToolOption 定义知识库检索工具可选配置。
+type SearchToolOption func(*searchToolOptions)
+
+// WithSearchToolMetrics 注入知识库检索指标。
+func WithSearchToolMetrics(metrics *observability.Metrics) SearchToolOption {
+	return func(options *searchToolOptions) {
+		if metrics != nil {
+			options.metrics = metrics
+		}
+	}
+}
+
+type SearchRulesTool struct {
+	searcher retrievalsearch.Searcher
+	metrics  *observability.Metrics
+}
+
+func NewSearchRulesTool(searcher retrievalsearch.Searcher, options ...SearchToolOption) *SearchRulesTool {
+	opts := buildSearchToolOptions(options...)
+	return &SearchRulesTool{
+		searcher: searcher,
+		metrics:  opts.metrics,
+	}
 }
 
 func (t *SearchRulesTool) Spec() ToolSpec {
@@ -47,15 +72,20 @@ func (t *SearchRulesTool) Spec() ToolSpec {
 }
 
 func (t *SearchRulesTool) Call(ctx context.Context, input CallInput) (CallOutput, error) {
-	return callKnowledgeSearcher(ctx, t.Spec().Name, retrievalsearch.KnowledgeBaseRules, t.searcher, input.Raw)
+	return callKnowledgeSearcher(ctx, t.Spec().Name, retrievalsearch.KnowledgeBaseRules, t.searcher, t.metrics, input.Raw)
 }
 
 type SearchLoreTool struct {
 	searcher retrievalsearch.Searcher
+	metrics  *observability.Metrics
 }
 
-func NewSearchLoreTool(searcher retrievalsearch.Searcher) *SearchLoreTool {
-	return &SearchLoreTool{searcher: searcher}
+func NewSearchLoreTool(searcher retrievalsearch.Searcher, options ...SearchToolOption) *SearchLoreTool {
+	opts := buildSearchToolOptions(options...)
+	return &SearchLoreTool{
+		searcher: searcher,
+		metrics:  opts.metrics,
+	}
 }
 
 func (t *SearchLoreTool) Spec() ToolSpec {
@@ -76,7 +106,7 @@ func (t *SearchLoreTool) Spec() ToolSpec {
 }
 
 func (t *SearchLoreTool) Call(ctx context.Context, input CallInput) (CallOutput, error) {
-	return callKnowledgeSearcher(ctx, t.Spec().Name, retrievalsearch.KnowledgeBaseLore, t.searcher, input.Raw)
+	return callKnowledgeSearcher(ctx, t.Spec().Name, retrievalsearch.KnowledgeBaseLore, t.searcher, t.metrics, input.Raw)
 }
 
 func callKnowledgeSearcher(
@@ -84,6 +114,7 @@ func callKnowledgeSearcher(
 	toolName string,
 	knowledgeBase string,
 	searcher retrievalsearch.Searcher,
+	metrics *observability.Metrics,
 	raw json.RawMessage,
 ) (CallOutput, error) {
 	var args searchKnowledgeArgs
@@ -94,18 +125,51 @@ func callKnowledgeSearcher(
 		args.TopK = defaultKnowledgeSearchTopK
 	}
 
+	startedAt := time.Now()
 	results, err := searcher.Search(ctx, retrievalsearch.SearchRequest{
 		Query: args.Query,
 		TopK:  args.TopK,
 	})
 	if err != nil {
+		recordRAGSearch(metrics, knowledgeBase, "degraded", startedAt)
+		recordRAGDegraded(metrics, knowledgeBase)
 		return newToolOutput(toolName, buildRetrievalFallbackResult(args.Query, knowledgeBase, err)), nil
 	}
 
+	recordRAGSearch(metrics, knowledgeBase, "success", startedAt)
 	return newToolOutput(toolName, searchKnowledgeResult{
 		KnowledgeBase: knowledgeBase,
 		Results:       results,
 	}), nil
+}
+
+func buildSearchToolOptions(options ...SearchToolOption) searchToolOptions {
+	var opts searchToolOptions
+	for _, option := range options {
+		if option != nil {
+			option(&opts)
+		}
+	}
+	return opts
+}
+
+func recordRAGSearch(metrics *observability.Metrics, knowledgeBase string, status string, startedAt time.Time) {
+	if metrics == nil {
+		return
+	}
+	labels := prometheus.Labels{
+		"knowledge_base": knowledgeBase,
+		"status":         status,
+	}
+	metrics.RAGSearchTotal.With(labels).Inc()
+	observability.ObserveDuration(metrics.RAGSearchDuration, labels, startedAt)
+}
+
+func recordRAGDegraded(metrics *observability.Metrics, knowledgeBase string) {
+	if metrics == nil {
+		return
+	}
+	metrics.RAGDegradedTotal.With(prometheus.Labels{"knowledge_base": knowledgeBase}).Inc()
 }
 
 func buildRetrievalFallbackResult(query string, knowledgeBase string, err error) searchKnowledgeResult {

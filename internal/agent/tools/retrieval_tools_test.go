@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
+
+	"DND-AI-BOT/internal/observability"
 	retrievalsearch "DND-AI-BOT/internal/retrieval/search"
 )
 
@@ -124,6 +127,43 @@ func TestSearchLoreToolCallReturnsDegradedResultWhenSearcherFails(t *testing.T) 
 	}
 	if !strings.Contains(result.Message, "知识库检索暂时不可用") {
 		t.Fatalf("expected degraded message, got %q", result.Message)
+	}
+}
+
+func TestSearchRulesToolCallRecordsSearchMetrics(t *testing.T) {
+	metrics := observability.NewMetrics(prometheus.NewRegistry())
+	tool := NewSearchRulesTool(&fakeKnowledgeSearcher{}, WithSearchToolMetrics(metrics))
+
+	_, err := tool.Call(context.Background(), CallInput{
+		SessionID: "session-1",
+		Raw:       json.RawMessage(`{"query":"法师"}`),
+	})
+	if err != nil {
+		t.Fatalf("expected call to succeed, got %v", err)
+	}
+
+	body := scrapeToolMetrics(t, metrics)
+	if !strings.Contains(body, `rag_search_total{knowledge_base="rules",status="success"} 1`) {
+		t.Fatalf("expected successful RAG metric, got %s", body)
+	}
+}
+
+func TestSearchLoreToolCallRecordsDegradedMetrics(t *testing.T) {
+	metrics := observability.NewMetrics(prometheus.NewRegistry())
+	tool := NewSearchLoreTool(&fakeKnowledgeSearcher{err: errors.New("search failed")}, WithSearchToolMetrics(metrics))
+
+	_, err := tool.Call(context.Background(), CallInput{
+		SessionID: "session-1",
+		Raw:       json.RawMessage(`{"query":"城市"}`),
+	})
+	if err != nil {
+		t.Fatalf("expected degraded result instead of error, got %v", err)
+	}
+
+	body := scrapeToolMetrics(t, metrics)
+	if !strings.Contains(body, `rag_search_total{knowledge_base="lore",status="degraded"} 1`) ||
+		!strings.Contains(body, `rag_degraded_total{knowledge_base="lore"} 1`) {
+		t.Fatalf("expected degraded RAG metrics, got %s", body)
 	}
 }
 

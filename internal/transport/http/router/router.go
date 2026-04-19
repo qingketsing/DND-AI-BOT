@@ -14,8 +14,19 @@ func NewRouter(
 	encounterHandler *handler.EncounterHandler,
 	authHandler *handler.AuthHandler,
 	authMiddleware func(http.Handler) http.Handler,
+	options ...Option,
 ) http.Handler {
+	config := routerOptions{}
+	for _, option := range options {
+		if option != nil {
+			option(&config)
+		}
+	}
+
 	mux := http.NewServeMux()
+	if config.metricsHandler != nil {
+		mux.Handle("/metrics", config.metricsHandler)
+	}
 
 	mux.HandleFunc("/auth/register", authHandler.Register)
 	mux.HandleFunc("/auth/login", authHandler.Login)
@@ -116,5 +127,32 @@ func NewRouter(
 		sessionHandler.GetSession(w, r)
 	})))
 
-	return mux
+	var handler http.Handler = mux
+	for i := len(config.globalMiddleware) - 1; i >= 0; i-- {
+		handler = config.globalMiddleware[i](handler)
+	}
+
+	return handler
+}
+
+type routerOptions struct {
+	metricsHandler   http.Handler
+	globalMiddleware []func(http.Handler) http.Handler
+}
+
+// Option 定义 Router 可选配置。
+type Option func(*routerOptions)
+
+// WithMetricsHandler 注册无需鉴权的 Prometheus metrics handler。
+func WithMetricsHandler(metricsHandler http.Handler) Option {
+	return func(options *routerOptions) {
+		options.metricsHandler = metricsHandler
+	}
+}
+
+// WithGlobalMiddleware 注册全局 middleware。
+func WithGlobalMiddleware(middleware ...func(http.Handler) http.Handler) Option {
+	return func(options *routerOptions) {
+		options.globalMiddleware = append(options.globalMiddleware, middleware...)
+	}
 }

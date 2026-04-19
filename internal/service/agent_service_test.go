@@ -5,8 +5,14 @@ import (
 	"context"
 	"errors"
 	"log"
+	"log/slog"
+	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/prometheus/client_golang/prometheus"
+
+	"DND-AI-BOT/internal/observability"
 )
 
 func TestAgentServiceReplyReturnsRuntimeOutput(t *testing.T) {
@@ -32,6 +38,73 @@ func TestAgentServiceReplyReturnsRuntimeOutput(t *testing.T) {
 	}
 	if len(output.Steps) != 1 {
 		t.Fatalf("expected one tool step, got %+v", output.Steps)
+	}
+}
+
+func TestAgentServiceReplyRecordsMetrics(t *testing.T) {
+	metrics := observability.NewMetrics(prometheus.NewRegistry())
+	service := NewAgentService(func(ctx context.Context, input AgentReplyInput) (AgentReplyResult, error) {
+		_ = ctx
+		_ = input
+		return AgentReplyResult{Reply: "ok"}, nil
+	}, nil, WithAgentMetrics(metrics))
+
+	_, err := service.Reply(context.Background(), AgentReplyInput{
+		SessionID:   "session-1",
+		UserMessage: "hello",
+	})
+	if err != nil {
+		t.Fatalf("expected reply to succeed, got %v", err)
+	}
+
+	body := scrapeMetrics(t, metrics)
+	if !strings.Contains(body, `agent_runs_total{status="success"} 1`) {
+		t.Fatalf("expected successful agent run metric, got %s", body)
+	}
+}
+
+func TestAgentServiceReplyRecordsFallbackMetrics(t *testing.T) {
+	metrics := observability.NewMetrics(prometheus.NewRegistry())
+	service := NewAgentService(func(ctx context.Context, input AgentReplyInput) (AgentReplyResult, error) {
+		_ = ctx
+		_ = input
+		return AgentReplyResult{}, errors.New("deepseek chat completion: timeout")
+	}, nil, WithAgentMetrics(metrics))
+
+	_, err := service.Reply(context.Background(), AgentReplyInput{
+		SessionID:   "session-1",
+		UserMessage: "hello",
+	})
+	if err != nil {
+		t.Fatalf("expected fallback reply, got %v", err)
+	}
+
+	body := scrapeMetrics(t, metrics)
+	if !strings.Contains(body, `agent_runs_total{status="fallback"} 1`) || !strings.Contains(body, `agent_fallback_total{fallback_kind="model"} 1`) {
+		t.Fatalf("expected fallback metrics, got %s", body)
+	}
+}
+
+func TestAgentServiceReplyWritesStructuredLog(t *testing.T) {
+	buffer := bytes.NewBuffer(nil)
+	structuredLogger := slog.New(slog.NewJSONHandler(buffer, nil))
+	service := NewAgentService(func(ctx context.Context, input AgentReplyInput) (AgentReplyResult, error) {
+		_ = ctx
+		_ = input
+		return AgentReplyResult{Reply: "ok"}, nil
+	}, nil, WithAgentLogger(structuredLogger))
+
+	_, err := service.Reply(context.Background(), AgentReplyInput{
+		SessionID:   "session-1",
+		UserMessage: "hello",
+	})
+	if err != nil {
+		t.Fatalf("expected reply to succeed, got %v", err)
+	}
+
+	logOutput := buffer.String()
+	if !strings.Contains(logOutput, `"msg":"agent run finished"`) || !strings.Contains(logOutput, `"session_id":"session-1"`) {
+		t.Fatalf("expected structured agent log, got %s", logOutput)
 	}
 }
 
@@ -154,6 +227,13 @@ func TestToolNamesFromStepsReturnsCalledTools(t *testing.T) {
 	if names[0] != "get_game_state" || names[1] != "skill_check" {
 		t.Fatalf("unexpected tool names %v", names)
 	}
+}
+
+func scrapeMetrics(t *testing.T, metrics *observability.Metrics) string {
+	t.Helper()
+	recorder := httptest.NewRecorder()
+	metrics.Handler().ServeHTTP(recorder, httptest.NewRequest("GET", "/metrics", nil))
+	return recorder.Body.String()
 }
 
 type stubAgentFallbackResponder struct {

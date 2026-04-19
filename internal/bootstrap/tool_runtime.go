@@ -6,6 +6,7 @@ import (
 	agentcontext "DND-AI-BOT/internal/agent/context"
 	"DND-AI-BOT/internal/agent/tools"
 	"DND-AI-BOT/internal/game/rules"
+	"DND-AI-BOT/internal/observability"
 	retrievalsearch "DND-AI-BOT/internal/retrieval/search"
 	"DND-AI-BOT/internal/service"
 )
@@ -29,6 +30,7 @@ type ToolRuntimeInput struct {
 	RuleEngine       rules.RuleEngine
 	RuleSearcher     retrievalsearch.Searcher
 	LoreSearcher     retrievalsearch.Searcher
+	Metrics          *observability.Metrics
 }
 
 // BuildToolRuntime 根据现有业务依赖构建默认工具注册表与执行器。
@@ -44,7 +46,7 @@ func BuildToolRuntime(input ToolRuntimeInput) (*ToolRuntimeDependencies, error) 
 
 	return &ToolRuntimeDependencies{
 		Registry: registry,
-		Executor: tools.NewExecutor(registry),
+		Executor: tools.NewExecutor(registry, tools.WithExecutorMetrics(input.Metrics)),
 	}, nil
 }
 
@@ -64,5 +66,6 @@ func buildRegisterDependencies(input ToolRuntimeInput) tools.RegisterDependencie
 		RuleEngine:       input.RuleEngine,
 		RuleSearcher:     input.RuleSearcher,
 		LoreSearcher:     input.LoreSearcher,
+		Metrics:          input.Metrics,
 	}
 }

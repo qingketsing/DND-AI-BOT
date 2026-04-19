@@ -2,10 +2,14 @@ package service
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+
 	"DND-AI-BOT/internal/model"
+	"DND-AI-BOT/internal/observability"
 )
 
 func TestSessionMemoryRefreshServiceSkipsBelowThreshold(t *testing.T) {
@@ -76,6 +80,61 @@ func TestSessionMemoryRefreshServiceSummarizesOlderMessages(t *testing.T) {
 	got := memoryRepo.saved["session-1"]
 	if got == nil || got.SceneSummary != "the city 广场" || got.CurrentObjective != "寻找格伦" {
 		t.Fatalf("expected summary merge to persist memory, got %+v", got)
+	}
+}
+
+func TestSessionMemoryRefreshServiceRecordsSkippedMetric(t *testing.T) {
+	metrics := observability.NewMetrics(prometheus.NewRegistry())
+	sessionRepo := &fakeSessionRepository{
+		session: &model.Session{
+			ID:      "session-1",
+			History: make([]model.HistoryRecord, 10),
+		},
+	}
+	refresh := NewSessionMemoryRefreshService(
+		sessionRepo,
+		NewSessionMemoryService(&fakeSessionMemoryRepository{}),
+		&fakeSessionSummarizer{},
+		30,
+		40,
+		WithSessionMemoryRefreshMetrics(metrics),
+	)
+
+	if err := refresh.RefreshIfNeeded(context.Background(), "session-1", time.Now().UTC()); err != nil {
+		t.Fatalf("expected no error below threshold, got %v", err)
+	}
+
+	body := scrapeMetrics(t, metrics)
+	if !strings.Contains(body, `session_memory_refresh_total{status="skipped"} 1`) {
+		t.Fatalf("expected skipped session memory metric, got %s", body)
+	}
+}
+
+func TestSessionMemoryRefreshServiceRecordsSuccessMetric(t *testing.T) {
+	metrics := observability.NewMetrics(prometheus.NewRegistry())
+	history := make([]model.HistoryRecord, 45)
+	sessionRepo := &fakeSessionRepository{
+		session: &model.Session{
+			ID:      "session-1",
+			History: history,
+		},
+	}
+	refresh := NewSessionMemoryRefreshService(
+		sessionRepo,
+		NewSessionMemoryService(&fakeSessionMemoryRepository{}),
+		&fakeSessionSummarizer{},
+		30,
+		40,
+		WithSessionMemoryRefreshMetrics(metrics),
+	)
+
+	if err := refresh.RefreshIfNeeded(context.Background(), "session-1", time.Now().UTC()); err != nil {
+		t.Fatalf("expected refresh to succeed, got %v", err)
+	}
+
+	body := scrapeMetrics(t, metrics)
+	if !strings.Contains(body, `session_memory_refresh_total{status="success"} 1`) {
+		t.Fatalf("expected success session memory metric, got %s", body)
 	}
 }
 

@@ -4,7 +4,13 @@ import (
 	"context"
 	"errors"
 	"log"
+	"log/slog"
 	"strings"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+
+	"DND-AI-BOT/internal/observability"
 )
 
 var (
@@ -21,9 +27,11 @@ const (
 
 // AgentService 负责调 Runtime 完成一轮 Agent 回复，并集中记录运行日志。
 type AgentService struct {
-	runner   AgentRunner
-	logger   *log.Logger
-	fallback AgentFallbackResponder
+	runner           AgentRunner
+	logger           *log.Logger
+	structuredLogger *slog.Logger
+	metrics          *observability.Metrics
+	fallback         AgentFallbackResponder
 }
 
 // AgentReplyInput 定义发起一轮 Agent 回复所需的最小输入。
@@ -76,6 +84,24 @@ func WithAgentFallbackResponder(responder AgentFallbackResponder) AgentServiceOp
 	}
 }
 
+// WithAgentLogger 注入结构化日志 logger。
+func WithAgentLogger(logger *slog.Logger) AgentServiceOption {
+	return func(service *AgentService) {
+		if logger != nil {
+			service.structuredLogger = logger
+		}
+	}
+}
+
+// WithAgentMetrics 注入 Agent 运行指标。
+func WithAgentMetrics(metrics *observability.Metrics) AgentServiceOption {
+	return func(service *AgentService) {
+		if metrics != nil {
+			service.metrics = metrics
+		}
+	}
+}
+
 // Reply 执行一轮 Agent 运行，并返回 Runtime 的最终输出。
 func (s *AgentService) Reply(ctx context.Context, input AgentReplyInput) (AgentReplyResult, error) {
 	if s.runner == nil {
@@ -87,62 +113,91 @@ func (s *AgentService) Reply(ctx context.Context, input AgentReplyInput) (AgentR
 
 	effectiveInput := normalizeAgentReplyInputForLogging(input)
 	s.logRunStarted(effectiveInput)
+	startedAt := time.Now()
 
 	output, err := s.runner(ctx, input)
 	if err != nil {
 		fallback := s.buildFallback(input, err)
 		s.logRunFallback(effectiveInput, fallback, err)
+		s.recordAgentRun("fallback", startedAt)
+		s.recordAgentFallback(fallback.Kind)
 		return AgentReplyResult{Reply: fallback.Reply}, nil
 	}
 
 	s.logRunFinished(effectiveInput, output)
+	s.recordAgentRun("success", startedAt)
 	return output, nil
 }
 
 // logRunStarted 记录一轮 Agent 执行开始时的最小上下文。
 func (s *AgentService) logRunStarted(input AgentReplyInput) {
-	if s.logger == nil {
-		return
+	if s.structuredLogger != nil {
+		s.structuredLogger.Info(
+			"agent run started",
+			"session_id", input.SessionID,
+			"max_steps", input.MaxSteps,
+			"context_limit", input.ContextLimit,
+		)
 	}
 
-	s.logger.Printf(
-		"agent run started: session_id=%s max_steps=%d context_limit=%d",
-		input.SessionID,
-		input.MaxSteps,
-		input.ContextLimit,
-	)
+	if s.logger != nil {
+		s.logger.Printf(
+			"agent run started: session_id=%s max_steps=%d context_limit=%d",
+			input.SessionID,
+			input.MaxSteps,
+			input.ContextLimit,
+		)
+	}
 }
 
 // logRunFinished 记录一轮 Agent 成功结束时的执行摘要。
 func (s *AgentService) logRunFinished(input AgentReplyInput, output AgentReplyResult) {
-	if s.logger == nil {
-		return
+	tools := toolNamesFromSteps(output.Steps)
+	if s.structuredLogger != nil {
+		s.structuredLogger.Info(
+			"agent run finished",
+			"session_id", input.SessionID,
+			"step_count", len(output.Steps),
+			"tools", tools,
+			"reply_length", len(output.Reply),
+		)
 	}
 
-	s.logger.Printf(
-		"agent run finished: session_id=%s step_count=%d tools=%v reply_length=%d",
-		input.SessionID,
-		len(output.Steps),
-		toolNamesFromSteps(output.Steps),
-		len(output.Reply),
-	)
+	if s.logger != nil {
+		s.logger.Printf(
+			"agent run finished: session_id=%s step_count=%d tools=%v reply_length=%d",
+			input.SessionID,
+			len(output.Steps),
+			tools,
+			len(output.Reply),
+		)
+	}
 }
 
 // logRunFailed 记录一轮 Agent 执行失败时的错误摘要。
 func (s *AgentService) logRunFailed(input AgentReplyInput, err error) {
-	if s.logger == nil {
-		return
+	if s.structuredLogger != nil {
+		s.structuredLogger.Error("agent run failed", "session_id", input.SessionID, "error", err)
 	}
 
-	s.logger.Printf("agent run failed: session_id=%s error=%v", input.SessionID, err)
+	if s.logger != nil {
+		s.logger.Printf("agent run failed: session_id=%s error=%v", input.SessionID, err)
+	}
 }
 
 func (s *AgentService) logRunFallback(input AgentReplyInput, fallback AgentFallbackReply, err error) {
-	if s.logger == nil {
-		return
+	if s.structuredLogger != nil {
+		s.structuredLogger.Warn(
+			"agent run fallback",
+			"session_id", input.SessionID,
+			"fallback_kind", string(fallback.Kind),
+			"error", err,
+		)
 	}
 
-	s.logger.Printf("agent run fallback: session_id=%s kind=%s error=%v", input.SessionID, fallback.Kind, err)
+	if s.logger != nil {
+		s.logger.Printf("agent run fallback: session_id=%s kind=%s error=%v", input.SessionID, fallback.Kind, err)
+	}
 }
 
 func (s *AgentService) buildFallback(input AgentReplyInput, err error) AgentFallbackReply {
@@ -178,4 +233,22 @@ func normalizeAgentReplyInputForLogging(input AgentReplyInput) AgentReplyInput {
 		input.ContextLimit = defaultLoggedContextLimit
 	}
 	return input
+}
+
+func (s *AgentService) recordAgentRun(status string, startedAt time.Time) {
+	if s.metrics == nil {
+		return
+	}
+	labels := prometheus.Labels{"status": status}
+	s.metrics.AgentRunsTotal.With(labels).Inc()
+	observability.ObserveDuration(s.metrics.AgentRunDuration, labels, startedAt)
+}
+
+func (s *AgentService) recordAgentFallback(kind AgentFailureKind) {
+	if s.metrics == nil {
+		return
+	}
+	s.metrics.AgentFallbackTotal.With(prometheus.Labels{
+		"fallback_kind": string(kind),
+	}).Inc()
 }

@@ -3,8 +3,14 @@ package tools
 import (
 	"context"
 	"errors"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+
+	"DND-AI-BOT/internal/observability"
 )
 
 func TestDefaultExecutorExecuteRunsTargetTool(t *testing.T) {
@@ -64,6 +70,58 @@ func TestDefaultExecutorExecutePropagatesToolError(t *testing.T) {
 	if !errors.Is(err, expectedErr) {
 		t.Fatalf("expected propagated tool error, got %v", err)
 	}
+}
+
+func TestDefaultExecutorExecuteRecordsSuccessMetrics(t *testing.T) {
+	metrics := observability.NewMetrics(prometheus.NewRegistry())
+	registry := NewInMemoryRegistry()
+	if err := registry.Register(executorStubTool{
+		name:   "get_agent_context",
+		output: CallOutput{ToolName: "get_agent_context"},
+	}); err != nil {
+		t.Fatalf("expected register to succeed, got %v", err)
+	}
+
+	executor := NewExecutor(registry, WithExecutorMetrics(metrics))
+	_, err := executor.Execute(context.Background(), "get_agent_context", CallInput{})
+	if err != nil {
+		t.Fatalf("expected execute to succeed, got %v", err)
+	}
+
+	body := scrapeToolMetrics(t, metrics)
+	if !strings.Contains(body, `tool_calls_total{status="success",tool="get_agent_context"} 1`) {
+		t.Fatalf("expected successful tool metric, got %s", body)
+	}
+}
+
+func TestDefaultExecutorExecuteRecordsErrorMetrics(t *testing.T) {
+	metrics := observability.NewMetrics(prometheus.NewRegistry())
+	registry := NewInMemoryRegistry()
+	if err := registry.Register(executorStubTool{
+		name: "spend_gold",
+		err:  errors.New("boom"),
+	}); err != nil {
+		t.Fatalf("expected register to succeed, got %v", err)
+	}
+
+	executor := NewExecutor(registry, WithExecutorMetrics(metrics))
+	_, err := executor.Execute(context.Background(), "spend_gold", CallInput{})
+	if err == nil {
+		t.Fatal("expected execute to fail")
+	}
+
+	body := scrapeToolMetrics(t, metrics)
+	if !strings.Contains(body, `tool_calls_total{status="error",tool="spend_gold"} 1`) ||
+		!strings.Contains(body, `tool_errors_total{tool="spend_gold"} 1`) {
+		t.Fatalf("expected error tool metrics, got %s", body)
+	}
+}
+
+func scrapeToolMetrics(t *testing.T, metrics *observability.Metrics) string {
+	t.Helper()
+	recorder := httptest.NewRecorder()
+	metrics.Handler().ServeHTTP(recorder, httptest.NewRequest("GET", "/metrics", nil))
+	return recorder.Body.String()
 }
 
 type executorStubTool struct {

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"DND-AI-BOT/internal/bootstrap"
 	basecontext "DND-AI-BOT/internal/context"
 	"DND-AI-BOT/internal/game/rules"
+	"DND-AI-BOT/internal/observability"
 	"DND-AI-BOT/internal/repository"
 	"DND-AI-BOT/internal/repository/composite"
 	postgresstore "DND-AI-BOT/internal/repository/postgres"
@@ -36,8 +38,40 @@ type App struct {
 	KnowledgeWarmupService *service.KnowledgeWarmupService
 }
 
+type AppOptions struct {
+	Logger  *slog.Logger
+	Metrics *observability.Metrics
+}
+
+// AppOption 定义应用装配可选项。
+type AppOption func(*AppOptions)
+
+// WithLogger 注入结构化 logger。
+func WithLogger(logger *slog.Logger) AppOption {
+	return func(options *AppOptions) {
+		options.Logger = logger
+	}
+}
+
+// WithMetrics 注入 Prometheus metrics。
+func WithMetrics(metrics *observability.Metrics) AppOption {
+	return func(options *AppOptions) {
+		options.Metrics = metrics
+	}
+}
+
 // NewApp 完成仓库、服务、处理器和路由的装配。
-func NewApp(deps *bootstrap.RuntimeDependencies) (*App, error) {
+func NewApp(deps *bootstrap.RuntimeDependencies, options ...AppOption) (*App, error) {
+	appOptions := AppOptions{
+		Logger:  observability.DefaultLogger(),
+		Metrics: observability.NewNoopMetrics(),
+	}
+	for _, option := range options {
+		if option != nil {
+			option(&appOptions)
+		}
+	}
+
 	sessionRepository := buildSessionRepository(deps)
 	gameStateRepository := buildGameStateRepository(deps)
 	encounterRepository := buildEncounterRepository(deps)
@@ -59,6 +93,7 @@ func NewApp(deps *bootstrap.RuntimeDependencies) (*App, error) {
 		RuleEngine:       rules.NewDefaultRuleEngine(nil),
 		RuleSearcher:     searchRuntime.RuleSearcher,
 		LoreSearcher:     searchRuntime.LoreSearcher,
+		Metrics:          appOptions.Metrics,
 	})
 	if err != nil {
 		return nil, err
@@ -76,6 +111,7 @@ func NewApp(deps *bootstrap.RuntimeDependencies) (*App, error) {
 		sessionSummarizer,
 		30,
 		40,
+		service.WithSessionMemoryRefreshMetrics(appOptions.Metrics),
 	)
 
 	agentService := service.NewAgentService(func(ctx context.Context, input service.AgentReplyInput) (service.AgentReplyResult, error) {
@@ -118,7 +154,7 @@ func NewApp(deps *bootstrap.RuntimeDependencies) (*App, error) {
 			Reply: output.Reply,
 			Steps: steps,
 		}, nil
-	}, log.Default())
+	}, log.Default(), service.WithAgentLogger(appOptions.Logger), service.WithAgentMetrics(appOptions.Metrics))
 	authService := service.NewAuthService(
 		postgresstore.NewPGUserStore(deps.DB),
 		postgresstore.NewPGAuthSessionStore(deps.DB),
@@ -148,7 +184,19 @@ func NewApp(deps *bootstrap.RuntimeDependencies) (*App, error) {
 	encounterHandler := httpHandler.NewEncounterHandler(encounterService)
 
 	return &App{
-		Handler:                router.NewRouter(sessionHandler, gameStateHandler, encounterHandler, authHandler, authMiddleware),
+		Handler: router.NewRouter(
+			sessionHandler,
+			gameStateHandler,
+			encounterHandler,
+			authHandler,
+			authMiddleware,
+			router.WithMetricsHandler(appOptions.Metrics.Handler()),
+			router.WithGlobalMiddleware(
+				httpMiddleware.NewRequestIDMiddleware(),
+				httpMiddleware.NewMetricsMiddleware(appOptions.Metrics),
+				httpMiddleware.NewAccessLogMiddleware(appOptions.Logger),
+			),
+		),
 		AgentService:           agentService,
 		AuthService:            authService,
 		SessionService:         sessionService,
