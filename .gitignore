@@ -37,3 +37,6 @@ data/raw/Rules/split/
 # RAG 生成数据
 data/normalized/
 data/chunks/
+
+# 本地数据库备份
+backups/

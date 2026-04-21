@@ -165,6 +165,28 @@ RATE_LIMIT_MESSAGE_IP_LIMIT=60
 RATE_LIMIT_MESSAGE_IP_WINDOW=1m
 ```
 
+### PostgreSQL 自动备份
+
+项目提供 `postgres-backup` Docker 服务，每天 UTC 03:00 执行一次 `pg_dump -Fc`，备份文件默认写入宿主机：
+
+```text
+./backups/postgres
+```
+
+手动备份：
+
+```bash
+docker compose run --rm postgres-backup /ops/postgres-backup/backup.sh
+```
+
+恢复指定备份前建议先停 API：
+
+```bash
+docker compose stop app
+docker compose run --rm postgres-backup /ops/postgres-backup/restore.sh /backups/<backup-file>.dump
+docker compose start app
+```
+
 ## 社区贡献者
 
 - ❤️ 感谢每位社区贡献者~

@@ -49,6 +49,27 @@ services:
       redis:
         condition: service_healthy
 
+  postgres-backup:
+    build:
+      context: .
+      dockerfile: ops/postgres-backup/Dockerfile
+    container_name: dnd-postgres-backup
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: dndbot
+      POSTGRES_USER: dnd
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dndpass}
+      POSTGRES_BACKUP_DIR: /backups
+      POSTGRES_BACKUP_PREFIX: dnd_ai_bot
+      POSTGRES_BACKUP_RETENTION_DAYS: 7
+    volumes:
+      - ./backups/postgres:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
   tester:
     image: golang:1.25.6
     container_name: dnd-tester
