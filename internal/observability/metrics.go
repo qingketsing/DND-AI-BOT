@@ -31,6 +31,10 @@ type Metrics struct {
 	ToolCallDuration  *prometheus.HistogramVec
 	ToolErrorsTotal   *prometheus.CounterVec
 	SessionMemoryRuns *prometheus.CounterVec
+
+	RateLimitChecksTotal  *prometheus.CounterVec
+	RateLimitBlockedTotal *prometheus.CounterVec
+	RateLimitErrorsTotal  *prometheus.CounterVec
 }
 
 // NewMetrics 创建并注册应用指标。
@@ -105,6 +109,18 @@ func NewMetrics(registry *prometheus.Registry) *Metrics {
 			Name: "session_memory_refresh_total",
 			Help: "Total session memory refresh attempts.",
 		}, []string{"status"}),
+		RateLimitChecksTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rate_limit_checks_total",
+			Help: "Total rate limit checks.",
+		}, []string{"endpoint", "scope", "status"}),
+		RateLimitBlockedTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rate_limit_blocked_total",
+			Help: "Total blocked rate limit checks.",
+		}, []string{"endpoint", "scope"}),
+		RateLimitErrorsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "rate_limit_errors_total",
+			Help: "Total rate limit backend errors.",
+		}, []string{"endpoint", "scope"}),
 	}
 	registry.MustRegister(
 		metrics.HTTPRequestsTotal,
@@ -122,6 +138,9 @@ func NewMetrics(registry *prometheus.Registry) *Metrics {
 		metrics.ToolCallDuration,
 		metrics.ToolErrorsTotal,
 		metrics.SessionMemoryRuns,
+		metrics.RateLimitChecksTotal,
+		metrics.RateLimitBlockedTotal,
+		metrics.RateLimitErrorsTotal,
 	)
 	return metrics
 }

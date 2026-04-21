@@ -5,10 +5,12 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"DND-AI-BOT/internal/model"
+	"DND-AI-BOT/internal/ratelimit"
 	"DND-AI-BOT/internal/service"
 	"DND-AI-BOT/internal/transport/http/dto"
 )
@@ -16,7 +18,8 @@ import (
 const authCookieName = "dnd_auth_session"
 
 type AuthHandler struct {
-	service *service.AuthService
+	service    *service.AuthService
+	rateLimits *ratelimit.Service
 }
 
 type registerRequest struct {
@@ -43,8 +46,22 @@ type authResponse struct {
 	User    *authUserResponse `json:"user,omitempty"`
 }
 
-func NewAuthHandler(service *service.AuthService) *AuthHandler {
-	return &AuthHandler{service: service}
+type AuthHandlerOption func(*AuthHandler)
+
+func NewAuthHandler(service *service.AuthService, options ...AuthHandlerOption) *AuthHandler {
+	handler := &AuthHandler{service: service}
+	for _, option := range options {
+		if option != nil {
+			option(handler)
+		}
+	}
+	return handler
+}
+
+func WithAuthRateLimiter(rateLimits *ratelimit.Service) AuthHandlerOption {
+	return func(handler *AuthHandler) {
+		handler.rateLimits = rateLimits
+	}
 }
 
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
@@ -57,6 +74,15 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", "invalid request body")
 		return
+	}
+	if h.rateLimits != nil {
+		if err := h.rateLimits.CheckRegister(r.Context(), ratelimit.CheckInput{
+			IP:    requestIP(r),
+			Email: request.Email,
+		}); err != nil {
+			handleRateLimitError(w, err)
+			return
+		}
 	}
 
 	result, err := h.service.Register(r.Context(), service.RegisterInput{
@@ -90,6 +116,15 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", "invalid request body")
 		return
+	}
+	if h.rateLimits != nil {
+		if err := h.rateLimits.CheckLogin(r.Context(), ratelimit.CheckInput{
+			IP:    requestIP(r),
+			Email: request.Email,
+		}); err != nil {
+			handleRateLimitError(w, err)
+			return
+		}
 	}
 
 	result, err := h.service.Login(r.Context(), service.LoginInput{
@@ -219,6 +254,18 @@ func handleAuthServiceError(w http.ResponseWriter, err error) {
 	default:
 		writeJSON(w, http.StatusInternalServerError, dto.NewErrorResponse("internal_error", "internal server error"))
 	}
+}
+
+func handleRateLimitError(w http.ResponseWriter, err error) {
+	if !ratelimit.IsRateLimited(err) {
+		writeJSON(w, http.StatusInternalServerError, dto.NewErrorResponse("internal_error", "internal server error"))
+		return
+	}
+	retryAfter := ratelimit.RetryAfter(err)
+	if retryAfter > 0 {
+		w.Header().Set("Retry-After", strconv.Itoa(max(1, int(retryAfter.Seconds()))))
+	}
+	writeError(w, http.StatusTooManyRequests, "rate_limited", "too many requests, please retry later")
 }
 
 func toAuthUserResponse(user model.User) *authUserResponse {

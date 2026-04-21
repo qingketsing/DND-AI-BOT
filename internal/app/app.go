@@ -15,6 +15,7 @@ import (
 	basecontext "DND-AI-BOT/internal/context"
 	"DND-AI-BOT/internal/game/rules"
 	"DND-AI-BOT/internal/observability"
+	"DND-AI-BOT/internal/ratelimit"
 	"DND-AI-BOT/internal/repository"
 	"DND-AI-BOT/internal/repository/composite"
 	postgresstore "DND-AI-BOT/internal/repository/postgres"
@@ -177,9 +178,10 @@ func NewApp(deps *bootstrap.RuntimeDependencies, options ...AppOption) (*App, er
 		sessionDeleteCleaners = append(sessionDeleteCleaners, cleaner)
 	}
 	sessionService.SetDeleteCleaners(sessionDeleteCleaners...)
-	authHandler := httpHandler.NewAuthHandler(authService)
+	rateLimitService := buildRateLimitService(deps, appOptions.Metrics)
+	authHandler := httpHandler.NewAuthHandler(authService, httpHandler.WithAuthRateLimiter(rateLimitService))
 	authMiddleware := httpMiddleware.NewAuthMiddleware(authService)
-	sessionHandler := httpHandler.NewSessionHandler(sessionService)
+	sessionHandler := httpHandler.NewSessionHandler(sessionService, httpHandler.WithSessionRateLimiter(rateLimitService))
 	gameStateHandler := httpHandler.NewGameStateHandler(gameStateService)
 	encounterHandler := httpHandler.NewEncounterHandler(encounterService)
 
@@ -206,6 +208,18 @@ func NewApp(deps *bootstrap.RuntimeDependencies, options ...AppOption) (*App, er
 		SessionMemoryRefresher: sessionMemoryRefresher,
 		KnowledgeWarmupService: knowledgeWarmupService,
 	}, nil
+}
+
+func buildRateLimitService(deps *bootstrap.RuntimeDependencies, metrics *observability.Metrics) *ratelimit.Service {
+	if deps == nil || deps.RedisClient == nil {
+		return nil
+	}
+	return ratelimit.NewService(
+		ratelimit.NewRedisLimiter(deps.RedisClient, "dnd:ratelimit"),
+		ratelimit.LoadConfigFromEnv(),
+		service.SystemClock{},
+		ratelimit.WithMetrics(metrics),
+	)
 }
 
 // buildSessionRepository 根据运行时依赖组装真实的 Session 持久化仓库。

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"DND-AI-BOT/internal/model"
+	"DND-AI-BOT/internal/ratelimit"
 	"DND-AI-BOT/internal/repository"
 	"DND-AI-BOT/internal/service"
 	"DND-AI-BOT/internal/transport/http/dto"
@@ -16,7 +17,8 @@ import (
 
 // SessionHandler 负责处理会话相关 HTTP 请求。
 type SessionHandler struct {
-	service *service.SessionService
+	service    *service.SessionService
+	rateLimits *ratelimit.Service
 }
 
 type successResponse struct {
@@ -25,8 +27,22 @@ type successResponse struct {
 }
 
 // NewSessionHandler 创建会话 HTTP 处理器。
-func NewSessionHandler(service *service.SessionService) *SessionHandler {
-	return &SessionHandler{service: service}
+type SessionHandlerOption func(*SessionHandler)
+
+func NewSessionHandler(service *service.SessionService, options ...SessionHandlerOption) *SessionHandler {
+	handler := &SessionHandler{service: service}
+	for _, option := range options {
+		if option != nil {
+			option(handler)
+		}
+	}
+	return handler
+}
+
+func WithSessionRateLimiter(rateLimits *ratelimit.Service) SessionHandlerOption {
+	return func(handler *SessionHandler) {
+		handler.rateLimits = rateLimits
+	}
 }
 
 // CreateSession 处理创建会话请求。
@@ -163,6 +179,16 @@ func (h *SessionHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", "invalid request body")
 		return
+	}
+	if h.rateLimits != nil {
+		if err := h.rateLimits.CheckMessage(r.Context(), ratelimit.CheckInput{
+			IP:        requestIP(r),
+			UserID:    user.UserID,
+			SessionID: sessionID,
+		}); err != nil {
+			handleRateLimitError(w, err)
+			return
+		}
 	}
 
 	session, err := h.service.SendMessage(r.Context(), user.UserID, user.DisplayName, service.SendMessageInput{

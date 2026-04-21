@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"DND-AI-BOT/internal/model"
+	"DND-AI-BOT/internal/ratelimit"
 	"DND-AI-BOT/internal/repository"
 	rediscache "DND-AI-BOT/internal/repository/redis"
 	"DND-AI-BOT/internal/service"
@@ -100,6 +101,39 @@ func TestAuthHandlerLoginInvalidCredentialsReturnsUnauthorized(t *testing.T) {
 		t.Fatalf("expected status %d, got %d", http.StatusUnauthorized, recorder.Code)
 	}
 	assertErrorCode(t, recorder, "invalid_credentials")
+}
+
+func TestAuthHandlerLoginReturnsTooManyRequestsWhenRateLimited(t *testing.T) {
+	handler := NewAuthHandler(
+		newTestAuthService(nil),
+		WithAuthRateLimiter(ratelimit.NewService(
+			&fakeAuthRateLimitBackend{
+				decision: ratelimit.Decision{
+					Allowed:    false,
+					PolicyName: "login_ip",
+					RetryAfter: 30 * time.Second,
+				},
+			},
+			ratelimit.DefaultConfig(),
+			authTestClock{now: time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)},
+		)),
+	)
+
+	request := httptest.NewRequest(http.MethodPost, "/auth/login", strings.NewReader(`{
+		"email":"user@opencumt.org",
+		"password":"StrongPassword123"
+	}`))
+	recorder := httptest.NewRecorder()
+
+	handler.Login(recorder, request)
+
+	if recorder.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected status %d, got %d", http.StatusTooManyRequests, recorder.Code)
+	}
+	if recorder.Header().Get("Retry-After") != "30" {
+		t.Fatalf("expected Retry-After 30, got %q", recorder.Header().Get("Retry-After"))
+	}
+	assertErrorCode(t, recorder, "rate_limited")
 }
 
 func TestAuthHandlerLogoutClearsCookie(t *testing.T) {
@@ -342,4 +376,16 @@ type authTestIDGenerator struct{}
 
 func (g *authTestIDGenerator) NewID(prefix string) string {
 	return prefix + "-1"
+}
+
+type fakeAuthRateLimitBackend struct {
+	decision ratelimit.Decision
+}
+
+func (f *fakeAuthRateLimitBackend) Allow(ctx context.Context, key string, policy ratelimit.Policy, now time.Time) (ratelimit.Decision, error) {
+	decision := f.decision
+	decision.Key = key
+	decision.PolicyName = policy.Name
+	decision.Limit = policy.Limit
+	return decision, nil
 }

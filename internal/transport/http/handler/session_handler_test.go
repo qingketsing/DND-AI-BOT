@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"DND-AI-BOT/internal/model"
+	"DND-AI-BOT/internal/ratelimit"
 	"DND-AI-BOT/internal/repository/memory"
 	"DND-AI-BOT/internal/service"
 	"DND-AI-BOT/internal/transport/http/middleware"
@@ -119,6 +120,49 @@ func TestSendMessageReturnsUpdatedSession(t *testing.T) {
 	if response.History[0].Source != "user" || response.History[1].Source != "agent" {
 		t.Fatalf("expected user and agent sources, got %+v", response.History)
 	}
+}
+
+func TestSendMessageReturnsTooManyRequestsWhenRateLimited(t *testing.T) {
+	repository := memory.NewSessionRepository()
+	sessionService := service.NewSessionService(repository)
+	ctx := context.Background()
+	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
+	session, err := sessionService.CreateSession(ctx, service.CreateSessionInput{UserID: "user-1", Channel: model.ChannelWeb}, now)
+	if err != nil {
+		t.Fatalf("expected create session to succeed, got %v", err)
+	}
+	handler := NewSessionHandler(
+		sessionService,
+		WithSessionRateLimiter(ratelimit.NewService(
+			&fakeSessionRateLimitBackend{
+				decision: ratelimit.Decision{
+					Allowed:    false,
+					PolicyName: "message_user",
+					RetryAfter: 15 * time.Second,
+				},
+			},
+			ratelimit.DefaultConfig(),
+			fakeSessionRateLimitClock{now: now},
+		)),
+	)
+
+	body := `{"content":"hello"}`
+	request := httptest.NewRequest(http.MethodPost, "/sessions/"+session.ID+"/messages", strings.NewReader(body))
+	request = request.WithContext(middleware.WithAuthenticatedUser(request.Context(), middleware.AuthenticatedUser{
+		UserID:      "user-1",
+		DisplayName: "Alice",
+	}))
+	recorder := httptest.NewRecorder()
+
+	handler.SendMessage(recorder, request)
+
+	if recorder.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected status %d, got %d", http.StatusTooManyRequests, recorder.Code)
+	}
+	if recorder.Header().Get("Retry-After") != "15" {
+		t.Fatalf("expected Retry-After 15, got %q", recorder.Header().Get("Retry-After"))
+	}
+	assertErrorCode(t, recorder, "rate_limited")
 }
 
 func TestListSessionsReturnsCurrentUserSessions(t *testing.T) {
@@ -244,4 +288,24 @@ func TestCreateSessionRejectsInvalidChannel(t *testing.T) {
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("expected status %d, got %d", http.StatusBadRequest, recorder.Code)
 	}
+}
+
+type fakeSessionRateLimitBackend struct {
+	decision ratelimit.Decision
+}
+
+func (f *fakeSessionRateLimitBackend) Allow(ctx context.Context, key string, policy ratelimit.Policy, now time.Time) (ratelimit.Decision, error) {
+	decision := f.decision
+	decision.Key = key
+	decision.PolicyName = policy.Name
+	decision.Limit = policy.Limit
+	return decision, nil
+}
+
+type fakeSessionRateLimitClock struct {
+	now time.Time
+}
+
+func (c fakeSessionRateLimitClock) Now() time.Time {
+	return c.now
 }
