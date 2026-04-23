@@ -3,7 +3,6 @@ package handler
 import (
 	"encoding/json"
 	"errors"
-	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -13,6 +12,7 @@ import (
 	"DND-AI-BOT/internal/ratelimit"
 	"DND-AI-BOT/internal/service"
 	"DND-AI-BOT/internal/transport/http/dto"
+	httpMiddleware "DND-AI-BOT/internal/transport/http/middleware"
 )
 
 const authCookieName = "dnd_auth_session"
@@ -20,6 +20,7 @@ const authCookieName = "dnd_auth_session"
 type AuthHandler struct {
 	service    *service.AuthService
 	rateLimits *ratelimit.Service
+	cookie     CookieConfig
 }
 
 type registerRequest struct {
@@ -49,7 +50,12 @@ type authResponse struct {
 type AuthHandlerOption func(*AuthHandler)
 
 func NewAuthHandler(service *service.AuthService, options ...AuthHandlerOption) *AuthHandler {
-	handler := &AuthHandler{service: service}
+	handler := &AuthHandler{
+		service: service,
+		cookie: CookieConfig{
+			SameSite: http.SameSiteLaxMode,
+		},
+	}
 	for _, option := range options {
 		if option != nil {
 			option(handler)
@@ -61,6 +67,21 @@ func NewAuthHandler(service *service.AuthService, options ...AuthHandlerOption) 
 func WithAuthRateLimiter(rateLimits *ratelimit.Service) AuthHandlerOption {
 	return func(handler *AuthHandler) {
 		handler.rateLimits = rateLimits
+	}
+}
+
+type CookieConfig struct {
+	Secure   bool
+	SameSite http.SameSite
+	Domain   string
+}
+
+func WithCookieConfig(config CookieConfig) AuthHandlerOption {
+	return func(handler *AuthHandler) {
+		if config.SameSite == 0 {
+			config.SameSite = http.SameSiteLaxMode
+		}
+		handler.cookie = config
 	}
 }
 
@@ -98,7 +119,7 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeAuthCookie(w, result.SessionToken, result.ExpiresAt)
+	h.writeAuthCookie(w, result.SessionToken, result.ExpiresAt)
 	writeJSON(w, http.StatusCreated, authResponse{
 		Success: true,
 		Message: "register succeeded",
@@ -138,7 +159,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeAuthCookie(w, result.SessionToken, result.ExpiresAt)
+	h.writeAuthCookie(w, result.SessionToken, result.ExpiresAt)
 	writeJSON(w, http.StatusOK, authResponse{
 		Success: true,
 		Message: "login succeeded",
@@ -163,7 +184,7 @@ func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	clearAuthCookie(w)
+	h.clearAuthCookie(w)
 	writeJSON(w, http.StatusOK, authResponse{
 		Success: true,
 		Message: "logout succeeded",
@@ -195,27 +216,29 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func writeAuthCookie(w http.ResponseWriter, token string, expiresAt time.Time) {
+func (h *AuthHandler) writeAuthCookie(w http.ResponseWriter, token string, expiresAt time.Time) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     authCookieName,
 		Value:    token,
 		Path:     "/",
 		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-		Secure:   false,
+		SameSite: h.cookie.SameSite,
+		Secure:   h.cookie.Secure,
+		Domain:   h.cookie.Domain,
 		Expires:  expiresAt,
 		MaxAge:   max(0, int(time.Until(expiresAt).Seconds())),
 	})
 }
 
-func clearAuthCookie(w http.ResponseWriter) {
+func (h *AuthHandler) clearAuthCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     authCookieName,
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-		Secure:   false,
+		SameSite: h.cookie.SameSite,
+		Secure:   h.cookie.Secure,
+		Domain:   h.cookie.Domain,
 		Expires:  time.Unix(0, 0).UTC(),
 		MaxAge:   -1,
 	})
@@ -277,11 +300,7 @@ func toAuthUserResponse(user model.User) *authUserResponse {
 }
 
 func requestIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr))
-	if err == nil {
-		return host
-	}
-	return strings.TrimSpace(r.RemoteAddr)
+	return httpMiddleware.ClientIPFromRequest(r)
 }
 
 func max(a int, b int) int {

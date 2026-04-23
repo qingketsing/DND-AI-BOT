@@ -73,6 +73,7 @@ func NewApp(deps *bootstrap.RuntimeDependencies, options ...AppOption) (*App, er
 		}
 	}
 
+	securityConfig := bootstrap.LoadSecurityConfigFromEnv()
 	sessionRepository := buildSessionRepository(deps)
 	gameStateRepository := buildGameStateRepository(deps)
 	encounterRepository := buildEncounterRepository(deps)
@@ -179,11 +180,16 @@ func NewApp(deps *bootstrap.RuntimeDependencies, options ...AppOption) (*App, er
 	}
 	sessionService.SetDeleteCleaners(sessionDeleteCleaners...)
 	rateLimitService := buildRateLimitService(deps, appOptions.Metrics)
-	authHandler := httpHandler.NewAuthHandler(authService, httpHandler.WithAuthRateLimiter(rateLimitService))
+	authHandler := httpHandler.NewAuthHandler(
+		authService,
+		httpHandler.WithAuthRateLimiter(rateLimitService),
+		httpHandler.WithCookieConfig(toHandlerCookieConfig(securityConfig.Cookie)),
+	)
 	authMiddleware := httpMiddleware.NewAuthMiddleware(authService)
 	sessionHandler := httpHandler.NewSessionHandler(sessionService, httpHandler.WithSessionRateLimiter(rateLimitService))
 	gameStateHandler := httpHandler.NewGameStateHandler(gameStateService)
 	encounterHandler := httpHandler.NewEncounterHandler(encounterService)
+	metricsHandler := httpMiddleware.NewMetricsAccessMiddleware(toMiddlewareMetricsAccessConfig(securityConfig.Metrics))(appOptions.Metrics.Handler())
 
 	return &App{
 		Handler: router.NewRouter(
@@ -192,8 +198,9 @@ func NewApp(deps *bootstrap.RuntimeDependencies, options ...AppOption) (*App, er
 			encounterHandler,
 			authHandler,
 			authMiddleware,
-			router.WithMetricsHandler(appOptions.Metrics.Handler()),
+			router.WithMetricsHandler(metricsHandler),
 			router.WithGlobalMiddleware(
+				httpMiddleware.NewSecurityMiddleware(toMiddlewareSecurityConfig(securityConfig)),
 				httpMiddleware.NewRequestIDMiddleware(),
 				httpMiddleware.NewMetricsMiddleware(appOptions.Metrics),
 				httpMiddleware.NewAccessLogMiddleware(appOptions.Logger),
@@ -208,6 +215,33 @@ func NewApp(deps *bootstrap.RuntimeDependencies, options ...AppOption) (*App, er
 		SessionMemoryRefresher: sessionMemoryRefresher,
 		KnowledgeWarmupService: knowledgeWarmupService,
 	}, nil
+}
+
+func toMiddlewareSecurityConfig(config bootstrap.SecurityConfig) httpMiddleware.SecurityConfig {
+	return httpMiddleware.SecurityConfig{
+		AllowedOrigins:   config.AllowedOrigins,
+		AllowedMethods:   config.AllowedMethods,
+		AllowedHeaders:   config.AllowedHeaders,
+		AllowCredentials: config.AllowCredentials,
+		MaxBodyBytes:     config.MaxBodyBytes,
+		TrustedProxies:   config.TrustedProxies,
+	}
+}
+
+func toMiddlewareMetricsAccessConfig(config bootstrap.MetricsAccessConfig) httpMiddleware.MetricsAccessConfig {
+	return httpMiddleware.MetricsAccessConfig{
+		Enabled:      config.Enabled,
+		AllowedCIDRs: config.AllowedCIDRs,
+		BearerToken:  config.BearerToken,
+	}
+}
+
+func toHandlerCookieConfig(config bootstrap.CookieConfig) httpHandler.CookieConfig {
+	return httpHandler.CookieConfig{
+		Secure:   config.Secure,
+		SameSite: config.SameSite,
+		Domain:   config.Domain,
+	}
 }
 
 func buildRateLimitService(deps *bootstrap.RuntimeDependencies, metrics *observability.Metrics) *ratelimit.Service {

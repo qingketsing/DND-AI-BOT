@@ -86,6 +86,47 @@ func TestAuthHandlerLoginSuccessSetsCookie(t *testing.T) {
 	}
 }
 
+func TestAuthHandlerLoginUsesConfiguredCookieSecurity(t *testing.T) {
+	handler := NewAuthHandler(
+		newTestAuthService(&model.User{
+			ID:           "user-1",
+			Email:        "user@opencumt.org",
+			PasswordHash: "hash:StrongPassword123",
+			DisplayName:  "Alice",
+			Status:       model.UserStatusActive,
+			CreatedAt:    time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC),
+			UpdatedAt:    time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC),
+		}),
+		WithCookieConfig(CookieConfig{
+			Secure:   true,
+			Domain:   "example.com",
+			SameSite: http.SameSiteNoneMode,
+		}),
+	)
+
+	request := httptest.NewRequest(http.MethodPost, "/auth/login", strings.NewReader(`{
+		"email":"user@opencumt.org",
+		"password":"StrongPassword123"
+	}`))
+	recorder := httptest.NewRecorder()
+
+	handler.Login(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+	cookie := readSetCookie(t, recorder)
+	if !cookie.Secure {
+		t.Fatal("expected secure cookie")
+	}
+	if cookie.Domain != "example.com" {
+		t.Fatalf("expected cookie domain example.com, got %q", cookie.Domain)
+	}
+	if cookie.SameSite != http.SameSiteNoneMode {
+		t.Fatalf("expected SameSite=None, got %v", cookie.SameSite)
+	}
+}
+
 func TestAuthHandlerLoginInvalidCredentialsReturnsUnauthorized(t *testing.T) {
 	handler := newTestAuthHandlerWithExistingUser("user@opencumt.org", "StrongPassword123")
 

@@ -143,6 +143,27 @@ REDIS_ADDR=
 HTTP_ADDR=:8080
 ```
 
+### 生产安全配置
+
+生产环境必须配置明确的前端域名、HTTPS Cookie 和 metrics 访问边界。
+
+```env
+CORS_ALLOWED_ORIGINS=https://your-frontend-domain.com
+CORS_ALLOWED_METHODS=GET,POST,DELETE,OPTIONS
+CORS_ALLOWED_HEADERS=Content-Type,X-Request-ID
+CORS_ALLOW_CREDENTIALS=true
+HTTP_MAX_BODY_BYTES=1048576
+TRUSTED_PROXIES=127.0.0.1/32,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+AUTH_COOKIE_SECURE=true
+AUTH_COOKIE_DOMAIN=
+AUTH_COOKIE_SAMESITE=lax
+METRICS_ENABLED=true
+METRICS_ALLOWED_CIDRS=127.0.0.1/32,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16
+METRICS_BEARER_TOKEN=
+```
+
+如果 `/metrics` 必须暴露给公网入口，必须设置 `METRICS_BEARER_TOKEN`，否则建议只允许内网 CIDR 访问。
+
 ### 接口限流
 
 限流使用 Redis 作为分布式计数后端。默认开启；如果本地单测或开发环境没有 Redis，应用装配会跳过限流服务。
