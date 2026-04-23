@@ -1,0 +1,17 @@
+{$APP_DOMAIN} {
+    encode gzip zstd
+
+    reverse_proxy app:8080 {
+        header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-Host {host}
+        header_up X-Real-IP {remote_host}
+    }
+
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy no-referrer
+        Permissions-Policy "geolocation=(), microphone=(), camera=()"
+        -Server
+    }
+}

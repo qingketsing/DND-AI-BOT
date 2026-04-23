@@ -1,0 +1,43 @@
+services:
+  postgres:
+    ports: !reset []
+    expose:
+      - "5432"
+    restart: unless-stopped
+
+  redis:
+    ports: !reset []
+    expose:
+      - "6379"
+    restart: unless-stopped
+
+  app:
+    ports: !reset []
+    expose:
+      - "8080"
+    environment:
+      AUTH_COOKIE_SECURE: "true"
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-172.16.0.0/12}
+      METRICS_ALLOWED_CIDRS: ${METRICS_ALLOWED_CIDRS:-172.16.0.0/12}
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: dnd-caddy
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:

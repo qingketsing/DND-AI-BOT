@@ -208,6 +208,44 @@ docker compose run --rm postgres-backup /ops/postgres-backup/restore.sh /backups
 docker compose start app
 ```
 
+### 生产反向代理 / HTTPS
+
+本地开发仍然使用默认 compose：
+
+```bash
+docker compose up -d --build
+```
+
+本地访问：
+
+```text
+http://localhost:8080
+```
+
+生产部署使用 Caddy 覆盖文件：
+
+```bash
+docker compose -f compose.yaml -f compose.prod.yaml up -d --build
+```
+
+生产模式只发布 Caddy 的 `80/443`，`app:8080`、`postgres:5432`、`redis:6379` 只在 Docker 内网暴露。
+
+生产必须配置：
+
+```env
+APP_DOMAIN=api.your-domain.com
+CORS_ALLOWED_ORIGINS=https://your-frontend-domain.com
+AUTH_COOKIE_SECURE=true
+TRUSTED_PROXIES=172.16.0.0/12
+METRICS_ALLOWED_CIDRS=172.16.0.0/12
+```
+
+检查生产 compose 合并结果：
+
+```bash
+sh scripts/deploy/test_prod_proxy_config.sh
+```
+
 ## 社区贡献者
 
 - ❤️ 感谢每位社区贡献者~
