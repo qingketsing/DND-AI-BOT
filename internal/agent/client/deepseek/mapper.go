@@ -27,8 +27,9 @@ func BuildChatRequest(model string, input runtime.ModelInput) ChatRequest {
 		if step.ActionName != "" {
 			toolCallID := fmt.Sprintf("call_%d", index+1)
 			messages = append(messages, ChatMessage{
-				Role:    "assistant",
-				Content: step.Thought,
+				Role:             "assistant",
+				Content:          step.Thought,
+				ReasoningContent: step.ReasoningContent,
 				ToolCalls: []ChatToolCall{
 					{
 						ID:   toolCallID,
@@ -50,8 +51,9 @@ func BuildChatRequest(model string, input runtime.ModelInput) ChatRequest {
 
 		if step.Thought != "" {
 			messages = append(messages, ChatMessage{
-				Role:    "assistant",
-				Content: step.Thought,
+				Role:             "assistant",
+				Content:          step.Thought,
+				ReasoningContent: step.ReasoningContent,
 			})
 		}
 	}
@@ -85,7 +87,8 @@ func ParseChatResponse(response ChatResponse) (runtime.ModelOutput, error) {
 	if len(message.ToolCalls) > 0 {
 		call := message.ToolCalls[0]
 		return runtime.ModelOutput{
-			Thought: message.Content,
+			Thought:          message.Content,
+			ReasoningContent: message.ReasoningContent,
 			ToolRequest: &runtime.ToolRequest{
 				Name:  call.Function.Name,
 				Input: json.RawMessage(call.Function.Arguments),
@@ -98,7 +101,8 @@ func ParseChatResponse(response ChatResponse) (runtime.ModelOutput, error) {
 	}
 
 	return runtime.ModelOutput{
-		Reply: message.Content,
+		Reply:            message.Content,
+		ReasoningContent: message.ReasoningContent,
 	}, nil
 }
 

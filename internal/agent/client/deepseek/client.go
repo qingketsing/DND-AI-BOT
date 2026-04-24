@@ -27,10 +27,11 @@ type ChatRequest struct {
 
 // ChatMessage 表示聊天消息或工具调用结果。
 type ChatMessage struct {
-	Role       string         `json:"role"`
-	Content    string         `json:"content,omitempty"`
-	ToolCallID string         `json:"tool_call_id,omitempty"`
-	ToolCalls  []ChatToolCall `json:"tool_calls,omitempty"`
+	Role             string         `json:"role"`
+	Content          string         `json:"content,omitempty"`
+	ReasoningContent string         `json:"reasoning_content,omitempty"`
+	ToolCallID       string         `json:"tool_call_id,omitempty"`
+	ToolCalls        []ChatToolCall `json:"tool_calls,omitempty"`
 }
 
 // ChatTool 定义发给模型的单个工具描述。

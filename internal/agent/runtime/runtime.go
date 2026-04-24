@@ -138,10 +138,11 @@ func validateModelOutput(output ModelOutput) error {
 // buildStepRecord 将模型动作和工具观察结果合并为单个步骤记录。
 func buildStepRecord(output ModelOutput, toolOutput tools.CallOutput) StepRecord {
 	return StepRecord{
-		Thought:     output.Thought,
-		ActionName:  output.ToolRequest.Name,
-		ActionInput: output.ToolRequest.Input,
-		Observation: toolOutput.Content,
+		Thought:          output.Thought,
+		ReasoningContent: output.ReasoningContent,
+		ActionName:       output.ToolRequest.Name,
+		ActionInput:      output.ToolRequest.Input,
+		Observation:      toolOutput.Content,
 	}
 }
 
@@ -153,9 +154,10 @@ func buildToolErrorStepRecord(output ModelOutput, err error) StepRecord {
 		input = output.ToolRequest.Input
 	}
 	return StepRecord{
-		Thought:     output.Thought,
-		ActionName:  toolName,
-		ActionInput: input,
+		Thought:          output.Thought,
+		ReasoningContent: output.ReasoningContent,
+		ActionName:       toolName,
+		ActionInput:      input,
 		Observation: ToolErrorObservation{
 			ToolName:  toolName,
 			Message:   err.Error(),

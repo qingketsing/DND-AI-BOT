@@ -22,10 +22,11 @@ func TestBuildChatRequestBuildsMessagesAndTools(t *testing.T) {
 		},
 		Steps: []runtime.StepRecord{
 			{
-				Thought:     "need tool",
-				ActionName:  "get_game_state",
-				ActionInput: json.RawMessage(`{"foo":"bar"}`),
-				Observation: map[string]any{"gold": 10},
+				Thought:          "need tool",
+				ReasoningContent: "private reasoning",
+				ActionName:       "get_game_state",
+				ActionInput:      json.RawMessage(`{"foo":"bar"}`),
+				Observation:      map[string]any{"gold": 10},
 			},
 		},
 	})
@@ -39,6 +40,9 @@ func TestBuildChatRequestBuildsMessagesAndTools(t *testing.T) {
 	if request.Messages[0].Role != "system" {
 		t.Fatalf("expected first message role to be system, got %s", request.Messages[0].Role)
 	}
+	if request.Messages[2].ReasoningContent != "private reasoning" {
+		t.Fatalf("expected reasoning content to be propagated, got %q", request.Messages[2].ReasoningContent)
+	}
 	if len(request.Tools) != 1 || request.Tools[0].Function.Name != "get_game_state" {
 		t.Fatalf("expected tool spec to be mapped into request, got %+v", request.Tools)
 	}
@@ -49,8 +53,9 @@ func TestParseChatResponseReturnsReply(t *testing.T) {
 		Choices: []ChatChoice{
 			{
 				Message: ChatMessage{
-					Role:    "assistant",
-					Content: "final reply",
+					Role:             "assistant",
+					Content:          "final reply",
+					ReasoningContent: "reply reasoning",
 				},
 			},
 		},
@@ -60,6 +65,9 @@ func TestParseChatResponseReturnsReply(t *testing.T) {
 	}
 	if output.Reply != "final reply" {
 		t.Fatalf("expected final reply, got %s", output.Reply)
+	}
+	if output.ReasoningContent != "reply reasoning" {
+		t.Fatalf("expected reasoning content to be preserved, got %q", output.ReasoningContent)
 	}
 	if output.ToolRequest != nil {
 		t.Fatal("expected no tool request in reply response")
@@ -71,8 +79,9 @@ func TestParseChatResponseReturnsToolRequest(t *testing.T) {
 		Choices: []ChatChoice{
 			{
 				Message: ChatMessage{
-					Role:    "assistant",
-					Content: "need tool",
+					Role:             "assistant",
+					Content:          "need tool",
+					ReasoningContent: "tool reasoning",
 					ToolCalls: []ChatToolCall{
 						{
 							ID:   "call_1",
@@ -98,5 +107,8 @@ func TestParseChatResponseReturnsToolRequest(t *testing.T) {
 	}
 	if string(output.ToolRequest.Input) != `{"amount":1}` {
 		t.Fatalf("expected tool input to be propagated, got %s", string(output.ToolRequest.Input))
+	}
+	if output.ReasoningContent != "tool reasoning" {
+		t.Fatalf("expected reasoning content to be propagated, got %q", output.ReasoningContent)
 	}
 }

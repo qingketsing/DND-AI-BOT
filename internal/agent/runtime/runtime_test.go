@@ -55,7 +55,8 @@ func TestRuntimeRunExecutesToolAndThenReturnsReply(t *testing.T) {
 	model := &fakeModelAdapter{
 		outputs: []ModelOutput{
 			{
-				Thought: "先读取当前状态。",
+				Thought:          "先读取当前状态。",
+				ReasoningContent: "先看状态再答复。",
 				ToolRequest: &ToolRequest{
 					Name:  "get_game_state",
 					Input: json.RawMessage(`{"include_inventory":true}`),
@@ -100,6 +101,9 @@ func TestRuntimeRunExecutesToolAndThenReturnsReply(t *testing.T) {
 	if output.Steps[0].Thought != "先读取当前状态。" || output.Steps[0].ActionName != "get_game_state" {
 		t.Fatalf("expected step to record thought and tool name, got %+v", output.Steps[0])
 	}
+	if output.Steps[0].ReasoningContent != "先看状态再答复。" {
+		t.Fatalf("expected step to retain reasoning content, got %+v", output.Steps[0])
+	}
 	if len(executor.calls) != 1 {
 		t.Fatalf("expected executor to be called once, got %d", len(executor.calls))
 	}
@@ -111,6 +115,9 @@ func TestRuntimeRunExecutesToolAndThenReturnsReply(t *testing.T) {
 	}
 	if len(model.inputs[1].Steps) != 1 {
 		t.Fatalf("expected second model call to receive one step, got %+v", model.inputs[1].Steps)
+	}
+	if model.inputs[1].Steps[0].ReasoningContent != "先看状态再答复。" {
+		t.Fatalf("expected second model call to receive reasoning content, got %+v", model.inputs[1].Steps[0])
 	}
 }
 
@@ -173,7 +180,8 @@ func TestRuntimeRunPassesToolErrorObservationBackToModel(t *testing.T) {
 	model := &fakeModelAdapter{
 		outputs: []ModelOutput{
 			{
-				Thought: "尝试读取战斗状态。",
+				Thought:          "尝试读取战斗状态。",
+				ReasoningContent: "先读战斗状态再裁定。",
 				ToolRequest: &ToolRequest{
 					Name:  "get_encounter",
 					Input: json.RawMessage(`{}`),
@@ -212,6 +220,9 @@ func TestRuntimeRunPassesToolErrorObservationBackToModel(t *testing.T) {
 	}
 	if len(model.inputs) != 2 || len(model.inputs[1].Steps) != 1 {
 		t.Fatalf("expected second model call to receive failed step, got %+v", model.inputs)
+	}
+	if model.inputs[1].Steps[0].ReasoningContent != "先读战斗状态再裁定。" {
+		t.Fatalf("expected failed step to retain reasoning content, got %+v", model.inputs[1].Steps[0])
 	}
 }
 

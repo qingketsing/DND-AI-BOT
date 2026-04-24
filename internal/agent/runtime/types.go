@@ -24,10 +24,11 @@ type RuntimeOutput struct {
 
 // StepRecord 表示一轮 ReAct 工具调用轨迹中的单个步骤。
 type StepRecord struct {
-	Thought     string          `json:"thought,omitempty"`
-	ActionName  string          `json:"action_name,omitempty"`
-	ActionInput json.RawMessage `json:"action_input,omitempty"`
-	Observation any             `json:"observation,omitempty"`
+	Thought          string          `json:"thought,omitempty"`
+	ReasoningContent string          `json:"reasoning_content,omitempty"`
+	ActionName       string          `json:"action_name,omitempty"`
+	ActionInput      json.RawMessage `json:"action_input,omitempty"`
+	Observation      any             `json:"observation,omitempty"`
 }
 
 // ToolErrorObservation 表示工具执行失败后交还给模型的结构化观察结果。
@@ -48,9 +49,10 @@ type ModelInput struct {
 
 // ModelOutput 定义模型适配层返回给 Runtime 的统一输出。
 type ModelOutput struct {
-	Thought     string
-	Reply       string
-	ToolRequest *ToolRequest
+	Thought          string
+	ReasoningContent string
+	Reply            string
+	ToolRequest      *ToolRequest
 }
 
 // ToolRequest 表示模型请求调用某个工具的结构化指令。
