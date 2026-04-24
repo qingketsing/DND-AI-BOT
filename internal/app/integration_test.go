@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"DND-AI-BOT/internal/bootstrap"
@@ -15,6 +16,49 @@ import (
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
+
+func TestIntegrationMigrationsCreateSessionsListCompositeIndex(t *testing.T) {
+	if os.Getenv("INTEGRATION_TEST") != "1" {
+		t.Skip("integration test disabled; set INTEGRATION_TEST=1 to enable")
+	}
+
+	originalWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("expected getwd to succeed, got %v", err)
+	}
+	if err := os.Chdir(filepath.Join("..", "..")); err != nil {
+		t.Fatalf("expected chdir to repo root to succeed, got %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(originalWD); err != nil {
+			t.Fatalf("expected restore working directory to succeed, got %v", err)
+		}
+	})
+
+	ctx := context.Background()
+	deps := openAppIntegrationDependencies(t)
+	defer deps.DB.Close()
+	defer deps.RedisClient.Close()
+
+	if err = bootstrap.RunEmbeddedMigrations(ctx, deps.DB); err != nil {
+		t.Fatalf("expected migrations to run, got %v", err)
+	}
+
+	var indexDefinition string
+	err = deps.DB.QueryRowContext(ctx, `
+		SELECT indexdef
+		FROM pg_indexes
+		WHERE schemaname = 'public'
+		  AND tablename = 'sessions'
+		  AND indexname = 'idx_sessions_user_id_updated_at_desc'
+	`).Scan(&indexDefinition)
+	if err != nil {
+		t.Fatalf("expected composite sessions index to exist, got %v", err)
+	}
+	if indexDefinition == "" {
+		t.Fatal("expected composite sessions index definition to be present")
+	}
+}
 
 func TestIntegrationHTTPAgentFlow(t *testing.T) {
 	if os.Getenv("INTEGRATION_TEST") != "1" {
