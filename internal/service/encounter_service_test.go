@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"DND-AI-BOT/internal/game/combat"
+	"DND-AI-BOT/internal/game/rules"
 	"DND-AI-BOT/internal/repository"
 )
 
@@ -189,6 +190,77 @@ func TestCanActReturnsFalseForStunnedCombatant(t *testing.T) {
 	}
 }
 
+func TestResolveAttackActionHitAppliesDamageAndAdvancesTurn(t *testing.T) {
+	repo := newFakeEncounterRepository()
+	engine := &fakeEncounterRuleEngine{
+		results: []rules.RollDiceResult{
+			{Expression: "1d20+5", Rolls: []int{12}, Chosen: []int{12}, Modifier: 5, Total: 17},
+			{Expression: "1d8+3", Rolls: []int{6}, Chosen: []int{6}, Modifier: 3, Total: 9},
+		},
+	}
+	service := NewEncounterService(repo, WithEncounterRuleEngine(engine))
+	ctx := context.Background()
+	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
+	existing := newTestEncounter(now)
+	repo.bySessionID["session-1"] = existing
+
+	result, err := service.ResolveAttackAction(ctx, ResolveAttackActionInput{
+		SessionID:   "session-1",
+		AttackerID:  "hero-1",
+		TargetID:    "goblin-1",
+		AttackBonus: 5,
+		DamageDice:  "1d8",
+		DamageBonus: 3,
+		AdvanceTurn: true,
+	}, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("expected attack resolution to succeed, got %v", err)
+	}
+	if !result.ActionResolved || !result.Hit {
+		t.Fatalf("expected resolved hit, got %+v", result)
+	}
+	if result.TargetHP != 0 || !result.TargetDown {
+		t.Fatalf("expected goblin to be down at 0 hp, got %+v", result)
+	}
+	if result.TurnIndex != 1 {
+		t.Fatalf("expected turn index to advance to 1, got %d", result.TurnIndex)
+	}
+	if len(engine.inputs) != 2 {
+		t.Fatalf("expected 2 dice rolls, got %+v", engine.inputs)
+	}
+}
+
+func TestResolveAttackActionReturnsStructuredFailureWhenNotAttackerTurn(t *testing.T) {
+	repo := newFakeEncounterRepository()
+	engine := &fakeEncounterRuleEngine{}
+	service := NewEncounterService(repo, WithEncounterRuleEngine(engine))
+	ctx := context.Background()
+	now := time.Date(2026, 4, 5, 14, 0, 0, 0, time.UTC)
+	existing := newTestEncounter(now)
+	repo.bySessionID["session-1"] = existing
+
+	result, err := service.ResolveAttackAction(ctx, ResolveAttackActionInput{
+		SessionID:   "session-1",
+		AttackerID:  "goblin-1",
+		TargetID:    "hero-1",
+		AttackBonus: 4,
+		DamageDice:  "1d6",
+		DamageBonus: 2,
+	}, now.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("expected structured turn-order failure, got %v", err)
+	}
+	if result.ActionResolved {
+		t.Fatalf("expected unresolved action, got %+v", result)
+	}
+	if result.Message == "" {
+		t.Fatalf("expected failure message, got %+v", result)
+	}
+	if len(engine.inputs) != 0 {
+		t.Fatalf("expected no dice rolls when wrong turn, got %+v", engine.inputs)
+	}
+}
+
 func newTestEncounter(now time.Time) *combat.Encounter {
 	return combat.NewEncounter("encounter-1", "session-1", []combat.Combatant{
 		combat.NewCombatant("hero-1", "Hero", combat.CombatSideParty, 20, 15, 12),
@@ -201,6 +273,34 @@ type fakeEncounterRepository struct {
 	saved       *combat.Encounter
 	saveErr     error
 	loadErr     error
+}
+
+type fakeEncounterRuleEngine struct {
+	inputs   []rules.RollDiceInput
+	results  []rules.RollDiceResult
+	rollErr  error
+}
+
+func (f *fakeEncounterRuleEngine) RollDice(input rules.RollDiceInput) (rules.RollDiceResult, error) {
+	f.inputs = append(f.inputs, input)
+	if f.rollErr != nil {
+		return rules.RollDiceResult{}, f.rollErr
+	}
+	index := len(f.inputs) - 1
+	if index >= len(f.results) {
+		return rules.RollDiceResult{}, nil
+	}
+	return f.results[index], nil
+}
+
+func (f *fakeEncounterRuleEngine) AbilityCheck(input rules.AbilityCheckInput) (rules.CheckResult, error) {
+	_ = input
+	return rules.CheckResult{}, nil
+}
+
+func (f *fakeEncounterRuleEngine) SkillCheck(input rules.SkillCheckInput) (rules.CheckResult, error) {
+	_ = input
+	return rules.CheckResult{}, nil
 }
 
 func newFakeEncounterRepository() *fakeEncounterRepository {

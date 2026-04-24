@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"net/http/httptest"
+	"bytes"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -114,6 +116,33 @@ func TestDefaultExecutorExecuteRecordsErrorMetrics(t *testing.T) {
 	if !strings.Contains(body, `tool_calls_total{status="error",tool="spend_gold"} 1`) ||
 		!strings.Contains(body, `tool_errors_total{tool="spend_gold"} 1`) {
 		t.Fatalf("expected error tool metrics, got %s", body)
+	}
+}
+
+func TestDefaultExecutorExecuteLogsToolFailure(t *testing.T) {
+	var buffer bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buffer, nil))
+	registry := NewInMemoryRegistry()
+	if err := registry.Register(executorStubTool{
+		name: "spend_gold",
+		err:  errors.New("boom"),
+	}); err != nil {
+		t.Fatalf("expected register to succeed, got %v", err)
+	}
+
+	executor := NewExecutor(registry, WithExecutorLogger(logger))
+	_, err := executor.Execute(context.Background(), "spend_gold", CallInput{
+		SessionID: "session-1",
+	})
+	if err == nil {
+		t.Fatal("expected execute to fail")
+	}
+
+	logOutput := buffer.String()
+	for _, expected := range []string{"tool execution failed", "tool=spend_gold", "session_id=session-1", "error=boom"} {
+		if !strings.Contains(logOutput, expected) {
+			t.Fatalf("expected log output to contain %q, got %s", expected, logOutput)
+		}
 	}
 }
 

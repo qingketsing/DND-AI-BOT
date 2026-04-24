@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"errors"
+	"log/slog"
 
 	agentcontext "DND-AI-BOT/internal/agent/context"
 	"DND-AI-BOT/internal/agent/tools"
@@ -31,6 +32,7 @@ type ToolRuntimeInput struct {
 	RuleSearcher     retrievalsearch.Searcher
 	LoreSearcher     retrievalsearch.Searcher
 	Metrics          *observability.Metrics
+	Logger           *slog.Logger
 }
 
 // BuildToolRuntime 根据现有业务依赖构建默认工具注册表与执行器。
@@ -46,7 +48,7 @@ func BuildToolRuntime(input ToolRuntimeInput) (*ToolRuntimeDependencies, error) 
 
 	return &ToolRuntimeDependencies{
 		Registry: registry,
-		Executor: tools.NewExecutor(registry, tools.WithExecutorMetrics(input.Metrics)),
+		Executor: tools.NewExecutor(registry, tools.WithExecutorMetrics(input.Metrics), tools.WithExecutorLogger(input.Logger)),
 	}, nil
 }
 

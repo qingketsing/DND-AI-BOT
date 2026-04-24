@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -18,6 +19,7 @@ type Executor interface {
 type DefaultExecutor struct {
 	registry Registry
 	metrics  *observability.Metrics
+	logger   *slog.Logger
 }
 
 // ExecutorOption 定义工具执行器可选配置。
@@ -43,18 +45,29 @@ func WithExecutorMetrics(metrics *observability.Metrics) ExecutorOption {
 	}
 }
 
+// WithExecutorLogger 注入工具执行日志。
+func WithExecutorLogger(logger *slog.Logger) ExecutorOption {
+	return func(executor *DefaultExecutor) {
+		if logger != nil {
+			executor.logger = logger
+		}
+	}
+}
+
 // Execute 查找指定工具并执行其调用逻辑。
 func (e *DefaultExecutor) Execute(ctx context.Context, toolName string, input CallInput) (CallOutput, error) {
 	startedAt := time.Now()
 	tool, ok := e.registry.Get(toolName)
 	if !ok {
 		e.recordToolCall(toolName, "error", startedAt)
+		e.logToolFailure(toolName, input, ErrToolNotFound, startedAt)
 		return CallOutput{}, ErrToolNotFound
 	}
 
 	output, err := tool.Call(ctx, input)
 	if err != nil {
 		e.recordToolCall(toolName, "error", startedAt)
+		e.logToolFailure(toolName, input, err, startedAt)
 		return CallOutput{}, err
 	}
 	e.recordToolCall(toolName, "success", startedAt)
@@ -74,4 +87,17 @@ func (e *DefaultExecutor) recordToolCall(toolName string, status string, started
 	if status == "error" {
 		e.metrics.ToolErrorsTotal.With(prometheus.Labels{"tool": toolName}).Inc()
 	}
+}
+
+func (e *DefaultExecutor) logToolFailure(toolName string, input CallInput, err error, startedAt time.Time) {
+	if e.logger == nil {
+		return
+	}
+	e.logger.Warn(
+		"tool execution failed",
+		"tool", toolName,
+		"session_id", input.SessionID,
+		"duration_ms", time.Since(startedAt).Milliseconds(),
+		"error", err,
+	)
 }

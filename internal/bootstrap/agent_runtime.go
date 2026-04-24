@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"errors"
+	"log/slog"
 
 	"DND-AI-BOT/internal/agent/client"
 	agentcontext "DND-AI-BOT/internal/agent/context"
@@ -36,6 +37,7 @@ type AgentRuntimeInput struct {
 	RuleSearcher     retrievalsearch.Searcher
 	LoreSearcher     retrievalsearch.Searcher
 	Metrics          *observability.Metrics
+	Logger           *slog.Logger
 }
 
 // BuildAgentRuntime 将模型层、工具层和 Runtime 组装为一套可运行的 Agent 内核。
@@ -100,5 +102,6 @@ func buildToolRuntimeInput(
 		RuleSearcher:     ruleSearcher,
 		LoreSearcher:     loreSearcher,
 		Metrics:          input.Metrics,
+		Logger:           input.Logger,
 	}
 }

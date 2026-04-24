@@ -65,7 +65,7 @@ func TestBuildToolRuntimeRegistersDefaultTools(t *testing.T) {
 		names[spec.Name] = struct{}{}
 	}
 
-	for _, required := range []string{"get_game_state", "apply_damage", "skill_check", "search_rules", "search_lore"} {
+	for _, required := range []string{"get_game_state", "apply_damage", "resolve_attack_action", "skill_check", "search_rules", "search_lore"} {
 		if _, ok := names[required]; !ok {
 			t.Fatalf("expected tool %q to be registered", required)
 		}
@@ -109,6 +109,7 @@ func newToolRuntimeInput(t *testing.T) ToolRuntimeInput {
 	t.Helper()
 
 	now := time.Now().UTC()
+	ruleEngine := rules.NewDefaultRuleEngine(nil)
 	sessionRepo := memory.NewSessionRepository()
 	session := model.NewSession("session-1", "user-1", model.ChannelBot, now)
 	session.AppendUserMessage(model.SessionUser{ID: "user-1", Name: "Hero"}, "hello", now)
@@ -143,7 +144,7 @@ func newToolRuntimeInput(t *testing.T) ToolRuntimeInput {
 	}
 
 	encounterRepo := newFakeEncounterRepository()
-	encounterService := service.NewEncounterService(encounterRepo)
+	encounterService := service.NewEncounterService(encounterRepo, service.WithEncounterRuleEngine(ruleEngine))
 	_, err = encounterService.Create(context.Background(), service.CreateEncounterInput{
 		ID:        "encounter-1",
 		SessionID: "session-1",
@@ -160,7 +161,7 @@ func newToolRuntimeInput(t *testing.T) ToolRuntimeInput {
 		ContextProvider:  contextProvider,
 		GameStateService: gameStateService,
 		EncounterService: encounterService,
-		RuleEngine:       rules.NewDefaultRuleEngine(nil),
+		RuleEngine:       ruleEngine,
 	}
 }
 

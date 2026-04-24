@@ -78,10 +78,11 @@ func NewApp(deps *bootstrap.RuntimeDependencies, options ...AppOption) (*App, er
 	gameStateRepository := buildGameStateRepository(deps)
 	encounterRepository := buildEncounterRepository(deps)
 	sessionMemoryRepository := buildSessionMemoryRepository(deps)
+	ruleEngine := rules.NewDefaultRuleEngine(nil)
 
 	sessionMemoryService := service.NewSessionMemoryService(sessionMemoryRepository)
 	gameStateService := service.NewGameStateService(gameStateRepository, sessionMemoryService)
-	encounterService := service.NewEncounterService(encounterRepository)
+	encounterService := service.NewEncounterService(encounterRepository, service.WithEncounterRuleEngine(ruleEngine))
 	contextStore := basecontext.NewSessionContextStore(sessionRepository)
 	contextProvider := agentcontext.NewProvider(contextStore)
 	searchRuntime, err := bootstrap.BuildSearchRuntimeWithDeps(deps)
@@ -92,10 +93,11 @@ func NewApp(deps *bootstrap.RuntimeDependencies, options ...AppOption) (*App, er
 		ContextProvider:  contextProvider,
 		GameStateService: gameStateService,
 		EncounterService: encounterService,
-		RuleEngine:       rules.NewDefaultRuleEngine(nil),
+		RuleEngine:       ruleEngine,
 		RuleSearcher:     searchRuntime.RuleSearcher,
 		LoreSearcher:     searchRuntime.LoreSearcher,
 		Metrics:          appOptions.Metrics,
+		Logger:           appOptions.Logger,
 	})
 	if err != nil {
 		return nil, err

@@ -182,6 +182,76 @@ func TestCanActToolCallMapsArgs(t *testing.T) {
 	}
 }
 
+func TestResolveAttackActionToolCallMapsArgs(t *testing.T) {
+	svc := &fakeEncounterToolService{
+		resolveAttackResult: service.ResolveAttackActionResult{
+			EncounterExists: true,
+			ActionResolved:  true,
+			Hit:             true,
+			TargetHP:        0,
+			TargetMaxHP:     8,
+			TargetDown:      true,
+		},
+	}
+	tool := NewResolveAttackActionTool(svc)
+	now := time.Date(2026, 4, 24, 17, 0, 0, 0, time.UTC)
+
+	output, err := tool.Call(context.Background(), CallInput{
+		SessionID: "session-1",
+		Raw: json.RawMessage(`{
+			"attacker_id":"hero-1",
+			"target_id":"goblin-1",
+			"attack_bonus":5,
+			"damage_dice":"1d8",
+			"damage_bonus":3,
+			"advance_turn":true
+		}`),
+		Now: now,
+	})
+	if err != nil {
+		t.Fatalf("expected call to succeed, got %v", err)
+	}
+	if svc.resolveAttackInput.AttackerID != "hero-1" || svc.resolveAttackInput.TargetID != "goblin-1" {
+		t.Fatalf("expected resolve attack input to be mapped, got %+v", svc.resolveAttackInput)
+	}
+	if svc.resolveAttackInput.DamageDice != "1d8" || svc.resolveAttackInput.DamageBonus != 3 || !svc.resolveAttackInput.AdvanceTurn {
+		t.Fatalf("expected damage fields to be mapped, got %+v", svc.resolveAttackInput)
+	}
+	if !svc.resolveAttackNow.Equal(now) {
+		t.Fatalf("expected resolve attack time %v, got %v", now, svc.resolveAttackNow)
+	}
+	result, ok := output.Content.(service.ResolveAttackActionResult)
+	if !ok || !result.Hit || !result.TargetDown {
+		t.Fatalf("expected structured attack resolution result, got %#v", output.Content)
+	}
+}
+
+func TestResolveAttackActionToolReturnsMissingEncounterResultWhenEncounterNotFound(t *testing.T) {
+	tool := NewResolveAttackActionTool(&fakeEncounterToolService{resolveAttackErr: repository.ErrEncounterNotFound})
+
+	output, err := tool.Call(context.Background(), CallInput{
+		SessionID: "session-1",
+		Raw: json.RawMessage(`{
+			"attacker_id":"hero-1",
+			"target_id":"goblin-1",
+			"attack_bonus":5,
+			"damage_dice":"1d8",
+			"damage_bonus":3
+		}`),
+		Now: time.Date(2026, 4, 24, 17, 1, 0, 0, time.UTC),
+	})
+	if err != nil {
+		t.Fatalf("expected encounter not found to be returned as tool content, got error %v", err)
+	}
+	result, ok := output.Content.(EncounterMissingResult)
+	if !ok {
+		t.Fatalf("expected EncounterMissingResult, got %#v", output.Content)
+	}
+	if result.EncounterExists || !result.RequiresCreateEncounter {
+		t.Fatalf("expected missing encounter result to require create_encounter, got %+v", result)
+	}
+}
+
 func TestEncounterToolsRejectInvalidInput(t *testing.T) {
 	tool := NewApplyDamageTool(&fakeEncounterToolService{})
 
@@ -232,6 +302,10 @@ type fakeEncounterToolService struct {
 	removeEffectInput service.RemoveEffectInput
 	removeEffectNow   time.Time
 	canActInput       service.CanActInput
+	resolveAttackInput  service.ResolveAttackActionInput
+	resolveAttackNow    time.Time
+	resolveAttackResult service.ResolveAttackActionResult
+	resolveAttackErr    error
 }
 
 func newToolEncounter() *combat.Encounter {
@@ -293,4 +367,11 @@ func (f *fakeEncounterToolService) CanAct(ctx context.Context, input service.Can
 	_ = ctx
 	f.canActInput = input
 	return f.canActResult, f.err
+}
+
+func (f *fakeEncounterToolService) ResolveAttackAction(ctx context.Context, input service.ResolveAttackActionInput, now time.Time) (service.ResolveAttackActionResult, error) {
+	_ = ctx
+	f.resolveAttackInput = input
+	f.resolveAttackNow = now
+	return f.resolveAttackResult, f.resolveAttackErr
 }

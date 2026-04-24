@@ -3,10 +3,12 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
 	"DND-AI-BOT/internal/game/combat"
+	"DND-AI-BOT/internal/game/rules"
 	"DND-AI-BOT/internal/repository"
 )
 
@@ -20,6 +22,19 @@ var (
 // EncounterService 负责编排战斗状态的读取与更新流程。
 type EncounterService struct {
 	repository repository.EncounterRepository
+	ruleEngine rules.RuleEngine
+}
+
+// EncounterServiceOption 定义战斗服务可选依赖。
+type EncounterServiceOption func(*EncounterService)
+
+// WithEncounterRuleEngine 注入战斗服务使用的规则引擎。
+func WithEncounterRuleEngine(engine rules.RuleEngine) EncounterServiceOption {
+	return func(service *EncounterService) {
+		if engine != nil {
+			service.ruleEngine = engine
+		}
+	}
 }
 
 // CreateEncounterInput 定义创建战斗时需要的最小输入。
@@ -68,9 +83,48 @@ type CanActInput struct {
 	TargetID  string
 }
 
+// ResolveAttackActionInput 定义一次原子化攻击结算所需输入。
+type ResolveAttackActionInput struct {
+	SessionID   string
+	AttackerID  string
+	TargetID    string
+	AttackBonus int
+	DamageDice  string
+	DamageBonus int
+	AttackMode  rules.RollMode
+	AdvanceTurn bool
+}
+
+// ResolveAttackActionResult 表示一次攻击结算的结构化结果。
+type ResolveAttackActionResult struct {
+	EncounterExists bool             `json:"encounter_exists"`
+	ActionResolved  bool             `json:"action_resolved"`
+	AttackerCanAct  bool             `json:"attacker_can_act"`
+	AttackRoll      int              `json:"attack_roll,omitempty"`
+	AttackTotal     int              `json:"attack_total,omitempty"`
+	TargetAC        int              `json:"target_ac,omitempty"`
+	Hit             bool             `json:"hit"`
+	DamageRoll      int              `json:"damage_roll,omitempty"`
+	DamageTotal     int              `json:"damage_total,omitempty"`
+	TargetHP        int              `json:"target_hp,omitempty"`
+	TargetMaxHP     int              `json:"target_max_hp,omitempty"`
+	TargetDown      bool             `json:"target_down"`
+	TargetDead      bool             `json:"target_dead"`
+	Round           int              `json:"round,omitempty"`
+	TurnIndex       int              `json:"turn_index,omitempty"`
+	Message         string           `json:"message,omitempty"`
+	Encounter       *combat.Encounter `json:"encounter,omitempty"`
+}
+
 // NewEncounterService 创建战斗服务。
-func NewEncounterService(repository repository.EncounterRepository) *EncounterService {
-	return &EncounterService{repository: repository}
+func NewEncounterService(repository repository.EncounterRepository, options ...EncounterServiceOption) *EncounterService {
+	service := &EncounterService{repository: repository}
+	for _, option := range options {
+		if option != nil {
+			option(service)
+		}
+	}
+	return service
 }
 
 // Create 创建并保存一场新的战斗。
@@ -191,4 +245,125 @@ func (s *EncounterService) CanAct(ctx context.Context, input CanActInput) (bool,
 	}
 
 	return encounter.CanAct(strings.TrimSpace(input.TargetID))
+}
+
+// ResolveAttackAction 以一次领域工具调用完成攻击检定、伤害结算和状态推进。
+func (s *EncounterService) ResolveAttackAction(ctx context.Context, input ResolveAttackActionInput, now time.Time) (ResolveAttackActionResult, error) {
+	encounter, err := s.repository.LoadBySessionID(ctx, strings.TrimSpace(input.SessionID))
+	if err != nil {
+		return ResolveAttackActionResult{}, err
+	}
+	result := ResolveAttackActionResult{
+		EncounterExists: true,
+		Encounter:       encounter,
+		Round:           encounter.Round,
+		TurnIndex:       encounter.TurnIndex,
+	}
+	if s.ruleEngine == nil {
+		result.Message = "攻击结算失败：规则引擎不可用。"
+		return result, ErrInvalidEncounter
+	}
+
+	current, ok := encounter.CurrentCombatant()
+	if !ok {
+		result.Message = "当前战斗中没有可行动单位。"
+		return result, nil
+	}
+	if current.ID != strings.TrimSpace(input.AttackerID) {
+		result.Message = fmt.Sprintf("当前行动单位是 %s，不是请求攻击的单位。", current.Name)
+		return result, nil
+	}
+
+	canAct, err := encounter.CanAct(strings.TrimSpace(input.AttackerID))
+	if err != nil {
+		if errors.Is(err, combat.ErrCombatantNotFound) {
+			result.Message = "攻击者不存在于当前战斗中。"
+			return result, nil
+		}
+		return result, err
+	}
+	result.AttackerCanAct = canAct
+	if !canAct {
+		result.Message = "当前攻击者无法行动。"
+		return result, nil
+	}
+
+	target, err := encounter.FindCombatant(strings.TrimSpace(input.TargetID))
+	if err != nil {
+		if errors.Is(err, combat.ErrCombatantNotFound) {
+			result.Message = "目标不存在于当前战斗中。"
+			return result, nil
+		}
+		return result, err
+	}
+	result.TargetAC = target.ArmorClass
+	result.TargetHP = target.CurrentHP
+	result.TargetMaxHP = target.MaxHP
+
+	attackRoll, err := s.ruleEngine.RollDice(rules.RollDiceInput{
+		Expression: fmt.Sprintf("1d20+%d", input.AttackBonus),
+		Mode:       input.AttackMode,
+	})
+	if err != nil {
+		return result, err
+	}
+	result.AttackRoll = sumInts(attackRoll.Chosen)
+	result.AttackTotal = attackRoll.Total
+	result.Hit = attackRoll.Total >= target.ArmorClass
+
+	if result.Hit {
+		damageRoll, err := s.ruleEngine.RollDice(rules.RollDiceInput{
+			Expression: appendModifier(input.DamageDice, input.DamageBonus),
+			Mode:       rules.RollModeNormal,
+		})
+		if err != nil {
+			return result, err
+		}
+		result.DamageRoll = sumInts(damageRoll.Chosen)
+		result.DamageTotal = damageRoll.Total
+		if err := encounter.ApplyDamage(strings.TrimSpace(input.TargetID), damageRoll.Total, now); err != nil {
+			return result, err
+		}
+	}
+
+	if input.AdvanceTurn {
+		encounter.AdvanceTurn(now)
+	}
+	if err := s.repository.Save(ctx, encounter); err != nil {
+		return result, err
+	}
+
+	target, err = encounter.FindCombatant(strings.TrimSpace(input.TargetID))
+	if err != nil {
+		return result, err
+	}
+	result.ActionResolved = true
+	result.TargetHP = target.CurrentHP
+	result.TargetMaxHP = target.MaxHP
+	result.TargetDown = target.Status == combat.CombatStatusDown
+	result.TargetDead = target.Status == combat.CombatStatusDead
+	result.Round = encounter.Round
+	result.TurnIndex = encounter.TurnIndex
+	result.Encounter = encounter
+	return result, nil
+}
+
+func appendModifier(dice string, modifier int) string {
+	dice = strings.TrimSpace(dice)
+	switch {
+	case modifier > 0:
+		return fmt.Sprintf("%s+%d", dice, modifier)
+	case modifier < 0:
+		return fmt.Sprintf("%s%d", dice, modifier)
+	default:
+		return dice
+	}
+}
+
+func sumInts(values []int) int {
+	total := 0
+	for _, value := range values {
+		total += value
+	}
+	return total
 }

@@ -20,6 +20,7 @@ type encounterToolService interface {
 	AddEffect(ctx context.Context, input service.AddEffectInput, now time.Time) (*combat.Encounter, error)
 	RemoveEffect(ctx context.Context, input service.RemoveEffectInput, now time.Time) (*combat.Encounter, error)
 	CanAct(ctx context.Context, input service.CanActInput) (bool, error)
+	ResolveAttackAction(ctx context.Context, input service.ResolveAttackActionInput, now time.Time) (service.ResolveAttackActionResult, error)
 }
 
 type applyDamageArgs struct {
@@ -49,6 +50,16 @@ type canActArgs struct {
 	TargetID string `json:"target_id"`
 }
 
+type resolveAttackActionArgs struct {
+	AttackerID  string `json:"attacker_id"`
+	TargetID    string `json:"target_id"`
+	AttackBonus int    `json:"attack_bonus"`
+	DamageDice  string `json:"damage_dice"`
+	DamageBonus int    `json:"damage_bonus"`
+	AttackMode  string `json:"attack_mode"`
+	AdvanceTurn bool   `json:"advance_turn"`
+}
+
 type createEncounterArgs struct {
 	ID         string                `json:"id"`
 	Combatants []createCombatantArgs `json:"combatants"`
@@ -67,6 +78,56 @@ type createCombatantArgs struct {
 // CanActResult 表示检查行动能力工具的结构化结果。
 type CanActResult struct {
 	CanAct bool `json:"can_act"`
+}
+
+// ResolveAttackActionTool 用于一次性完成攻击结算。
+type ResolveAttackActionTool struct{ service encounterToolService }
+
+// NewResolveAttackActionTool 创建原子化攻击结算工具。
+func NewResolveAttackActionTool(service encounterToolService) *ResolveAttackActionTool {
+	return &ResolveAttackActionTool{service: service}
+}
+
+// Spec 返回攻击结算工具的元信息描述。
+func (t *ResolveAttackActionTool) Spec() ToolSpec {
+	return ToolSpec{
+		Name:        "resolve_attack_action",
+		Description: "在已有结构化战斗状态中，一次性完成普通攻击的检定、伤害结算、扣血和可选回合推进。玩家说“攻击”“挥剑”“终结它”时优先使用这个工具，而不是拆成多个低层战斗工具。",
+		InputSchema: objectSchema(map[string]any{
+			"attacker_id":  map[string]any{"type": "string"},
+			"target_id":    map[string]any{"type": "string"},
+			"attack_bonus": map[string]any{"type": "integer"},
+			"damage_dice":  map[string]any{"type": "string"},
+			"damage_bonus": map[string]any{"type": "integer"},
+			"attack_mode":  map[string]any{"type": "string"},
+			"advance_turn": map[string]any{"type": "boolean"},
+		}, "attacker_id", "target_id", "attack_bonus", "damage_dice", "damage_bonus"),
+	}
+}
+
+// Call 解析参数并执行一次原子化攻击结算。
+func (t *ResolveAttackActionTool) Call(ctx context.Context, input CallInput) (CallOutput, error) {
+	var args resolveAttackActionArgs
+	if err := decodeToolInput(input.Raw, &args); err != nil {
+		return CallOutput{}, err
+	}
+	result, err := t.service.ResolveAttackAction(ctx, service.ResolveAttackActionInput{
+		SessionID:   input.SessionID,
+		AttackerID:  args.AttackerID,
+		TargetID:    args.TargetID,
+		AttackBonus: args.AttackBonus,
+		DamageDice:  args.DamageDice,
+		DamageBonus: args.DamageBonus,
+		AttackMode:  parseRollMode(args.AttackMode),
+		AdvanceTurn: args.AdvanceTurn,
+	}, input.Now)
+	if err != nil {
+		if errors.Is(err, repository.ErrEncounterNotFound) {
+			return newToolOutput(t.Spec().Name, newEncounterMissingResult()), nil
+		}
+		return CallOutput{}, err
+	}
+	return newToolOutput(t.Spec().Name, result), nil
 }
 
 // EncounterMissingResult 表示当前会话没有结构化战斗状态。
