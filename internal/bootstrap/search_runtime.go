@@ -3,11 +3,13 @@ package bootstrap
 import (
 	"database/sql"
 	"errors"
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"DND-AI-BOT/internal/observability"
 	retrievalsearch "DND-AI-BOT/internal/retrieval/search"
 )
 
@@ -39,6 +41,29 @@ type SearchConfig struct {
 type SearchRuntimeDependencies struct {
 	RuleSearcher retrievalsearch.Searcher
 	LoreSearcher retrievalsearch.Searcher
+}
+
+type SearchRuntimeOptions struct {
+	Logger  *slog.Logger
+	Metrics *observability.Metrics
+}
+
+type SearchRuntimeOption func(*SearchRuntimeOptions)
+
+func WithSearchRuntimeLogger(logger *slog.Logger) SearchRuntimeOption {
+	return func(options *SearchRuntimeOptions) {
+		if logger != nil {
+			options.Logger = logger
+		}
+	}
+}
+
+func WithSearchRuntimeMetrics(metrics *observability.Metrics) SearchRuntimeOption {
+	return func(options *SearchRuntimeOptions) {
+		if metrics != nil {
+			options.Metrics = metrics
+		}
+	}
 }
 
 func LoadSearchConfigFromEnv() (SearchConfig, error) {
@@ -87,7 +112,14 @@ func BuildSearchRuntime() (*SearchRuntimeDependencies, error) {
 }
 
 // BuildSearchRuntimeWithDeps 根据运行时依赖构建规则检索器和设定检索器。
-func BuildSearchRuntimeWithDeps(deps *RuntimeDependencies) (*SearchRuntimeDependencies, error) {
+func BuildSearchRuntimeWithDeps(deps *RuntimeDependencies, options ...SearchRuntimeOption) (*SearchRuntimeDependencies, error) {
+	searchOptions := SearchRuntimeOptions{}
+	for _, option := range options {
+		if option != nil {
+			option(&searchOptions)
+		}
+	}
+
 	config, err := LoadSearchConfigFromEnv()
 	if err != nil {
 		return nil, err
@@ -108,11 +140,11 @@ func BuildSearchRuntimeWithDeps(deps *RuntimeDependencies) (*SearchRuntimeDepend
 			return nil, err
 		}
 	case SearchBackendHybrid:
-		ruleSearcher, err = buildHybridSearcher(deps, retrievalsearch.KnowledgeBaseRules, config)
+		ruleSearcher, err = buildHybridSearcher(deps, retrievalsearch.KnowledgeBaseRules, config, searchOptions)
 		if err != nil {
 			return nil, err
 		}
-		loreSearcher, err = buildHybridSearcher(deps, retrievalsearch.KnowledgeBaseLore, config)
+		loreSearcher, err = buildHybridSearcher(deps, retrievalsearch.KnowledgeBaseLore, config, searchOptions)
 		if err != nil {
 			return nil, err
 		}
@@ -162,6 +194,7 @@ func buildHybridSearcher(
 	deps *RuntimeDependencies,
 	knowledgeBase string,
 	config SearchConfig,
+	options SearchRuntimeOptions,
 ) (retrievalsearch.Searcher, error) {
 	store, err := buildHybridSearchStore(deps)
 	if err != nil {
@@ -178,6 +211,8 @@ func buildHybridSearcher(
 		embedder,
 		retrievalsearch.NewRRFFusion(60),
 		20,
+		retrievalsearch.WithHybridSearchMetrics(options.Metrics),
+		retrievalsearch.WithHybridSearchLogger(options.Logger),
 	), nil
 }
 

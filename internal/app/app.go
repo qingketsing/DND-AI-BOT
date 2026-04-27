@@ -85,7 +85,11 @@ func NewApp(deps *bootstrap.RuntimeDependencies, options ...AppOption) (*App, er
 	encounterService := service.NewEncounterService(encounterRepository, service.WithEncounterRuleEngine(ruleEngine))
 	contextStore := basecontext.NewSessionContextStore(sessionRepository)
 	contextProvider := agentcontext.NewProvider(contextStore)
-	searchRuntime, err := bootstrap.BuildSearchRuntimeWithDeps(deps)
+	searchRuntime, err := bootstrap.BuildSearchRuntimeWithDeps(
+		deps,
+		bootstrap.WithSearchRuntimeLogger(appOptions.Logger),
+		bootstrap.WithSearchRuntimeMetrics(appOptions.Metrics),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -119,11 +123,31 @@ func NewApp(deps *bootstrap.RuntimeDependencies, options ...AppOption) (*App, er
 	)
 
 	agentService := service.NewAgentService(func(ctx context.Context, input service.AgentReplyInput) (service.AgentReplyResult, error) {
+		agentStartedAt := time.Now()
+		breakdown := agentLatencyBreakdown{
+			BaseSystemPromptChars: countChars(input.SystemPrompt),
+			UserMessageChars:      countChars(input.UserMessage),
+		}
+		recordAgentPromptSegmentChars(appOptions.Metrics, "base_system_prompt", input.SystemPrompt)
+		recordAgentPromptSegmentChars(appOptions.Metrics, "user_message", input.UserMessage)
+
+		warmupStartedAt := time.Now()
 		warmupResult := knowledgeWarmupService.BuildWarmupBestEffort(ctx, input.SessionID)
+		breakdown.WarmupBuild = time.Since(warmupStartedAt)
+		recordAgentPhase(appOptions.Metrics, "warmup_build", "success", warmupStartedAt)
+		warmupText := warmupBundleText(warmupResult.Bundle)
+		breakdown.WarmupBundleChars = countChars(warmupText)
+		recordAgentPromptSegmentChars(appOptions.Metrics, "warmup_bundle", warmupText)
+
+		promptStartedAt := time.Now()
 		systemPrompt := agentprompt.ComposeSystemPrompt(input.SystemPrompt, warmupResult.Bundle)
 		if warningsPrompt := composeWarmupWarningsPrompt(warmupResult.Warnings); strings.TrimSpace(warningsPrompt) != "" {
 			systemPrompt = strings.TrimSpace(systemPrompt + "\n\n" + warningsPrompt)
 		}
+		breakdown.SystemPromptCompose = time.Since(promptStartedAt)
+		recordAgentPhase(appOptions.Metrics, "system_prompt_compose", "success", promptStartedAt)
+
+		preloadedStartedAt := time.Now()
 		preloadedContextPrompt, err := buildPreloadedContextPrompt(ctx, preloadedContextInput{
 			SessionID:           input.SessionID,
 			ContextLimit:        input.ContextLimit,
@@ -131,13 +155,23 @@ func NewApp(deps *bootstrap.RuntimeDependencies, options ...AppOption) (*App, er
 			GameStateReader:     gameStateService,
 			SessionMemoryReader: sessionMemoryService,
 		})
+		breakdown.PreloadedContextBuild = time.Since(preloadedStartedAt)
 		if err != nil {
+			recordAgentPhase(appOptions.Metrics, "preloaded_context_build", "error", preloadedStartedAt)
+			breakdown.Total = time.Since(agentStartedAt)
+			logSlowAgentLatencyBreakdown(appOptions.Logger, input.SessionID, breakdown)
 			return service.AgentReplyResult{}, err
 		}
+		recordAgentPhase(appOptions.Metrics, "preloaded_context_build", "success", preloadedStartedAt)
+		breakdown.PreloadedContextChars = countChars(preloadedContextPrompt)
+		recordAgentPromptSegmentChars(appOptions.Metrics, "preloaded_context", preloadedContextPrompt)
 		if strings.TrimSpace(preloadedContextPrompt) != "" {
 			systemPrompt = strings.TrimSpace(systemPrompt + "\n\n" + preloadedContextPrompt)
 		}
+		breakdown.FinalSystemPromptChars = countChars(systemPrompt)
+		recordAgentPromptSegmentChars(appOptions.Metrics, "final_system_prompt", systemPrompt)
 
+		runtimeStartedAt := time.Now()
 		output, err := agentRuntime.Runtime.Run(ctx, agentruntime.RuntimeInput{
 			SessionID:    input.SessionID,
 			SystemPrompt: systemPrompt,
@@ -145,9 +179,16 @@ func NewApp(deps *bootstrap.RuntimeDependencies, options ...AppOption) (*App, er
 			MaxSteps:     input.MaxSteps,
 			ContextLimit: input.ContextLimit,
 		})
+		breakdown.RuntimeTotal = time.Since(runtimeStartedAt)
 		if err != nil {
+			recordAgentPhase(appOptions.Metrics, "runtime_total", "error", runtimeStartedAt)
+			breakdown.Total = time.Since(agentStartedAt)
+			logSlowAgentLatencyBreakdown(appOptions.Logger, input.SessionID, breakdown)
 			return service.AgentReplyResult{}, err
 		}
+		recordAgentPhase(appOptions.Metrics, "runtime_total", "success", runtimeStartedAt)
+		breakdown.Total = time.Since(agentStartedAt)
+		logSlowAgentLatencyBreakdown(appOptions.Logger, input.SessionID, breakdown)
 
 		steps := make([]service.AgentStep, 0, len(output.Steps))
 		for _, step := range output.Steps {

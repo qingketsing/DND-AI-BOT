@@ -3,8 +3,56 @@ package search
 import (
 	"context"
 	"errors"
+	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"github.com/prometheus/client_golang/prometheus"
+
+	"DND-AI-BOT/internal/observability"
 )
+
+func TestHybridSearcherRecordsPhaseMetrics(t *testing.T) {
+	t.Parallel()
+
+	metrics := observability.NewMetrics(prometheus.NewRegistry())
+	searcher := NewHybridSearcher(
+		KnowledgeBaseRules,
+		&fakeHybridStore{
+			ftsResults: []ScoredCandidate{
+				{ChunkID: "chunk-1", Title: "Magic Missile", KnowledgeBase: KnowledgeBaseRules},
+			},
+			vectorResults: []ScoredCandidate{
+				{ChunkID: "chunk-1", Title: "Magic Missile", KnowledgeBase: KnowledgeBaseRules},
+			},
+		},
+		&fakeEmbedder{vectors: [][]float32{{0.1, 0.2, 0.3}}},
+		NewRRFFusion(60),
+		10,
+		WithHybridSearchMetrics(metrics),
+	)
+
+	_, err := searcher.Search(context.Background(), SearchRequest{Query: "wizard spell", TopK: 5})
+	if err != nil {
+		t.Fatalf("expected hybrid search to succeed, got %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	metrics.Handler().ServeHTTP(recorder, httptest.NewRequest("GET", "/metrics", nil))
+	body := recorder.Body.String()
+	for _, expected := range []string{
+		"rag_phase_duration_seconds",
+		`knowledge_base="rules"`,
+		`phase="fts"`,
+		`phase="embedding"`,
+		`phase="vector"`,
+		`phase="fusion"`,
+	} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("expected %q in metrics output, got %s", expected, body)
+		}
+	}
+}
 
 func TestHybridSearcherFusesFTSAndVectorResults(t *testing.T) {
 	t.Parallel()

@@ -15,9 +15,11 @@ type Metrics struct {
 	HTTPRequestsTotal   *prometheus.CounterVec
 	HTTPRequestDuration *prometheus.HistogramVec
 
-	AgentRunsTotal     *prometheus.CounterVec
-	AgentRunDuration   *prometheus.HistogramVec
-	AgentFallbackTotal *prometheus.CounterVec
+	AgentRunsTotal          *prometheus.CounterVec
+	AgentRunDuration        *prometheus.HistogramVec
+	AgentFallbackTotal      *prometheus.CounterVec
+	AgentPhaseDuration      *prometheus.HistogramVec
+	AgentPromptSegmentChars *prometheus.HistogramVec
 
 	ModelRequestsTotal   *prometheus.CounterVec
 	ModelRequestDuration *prometheus.HistogramVec
@@ -26,6 +28,7 @@ type Metrics struct {
 	RAGSearchTotal    *prometheus.CounterVec
 	RAGSearchDuration *prometheus.HistogramVec
 	RAGDegradedTotal  *prometheus.CounterVec
+	RAGPhaseDuration  *prometheus.HistogramVec
 
 	ToolCallsTotal    *prometheus.CounterVec
 	ToolCallDuration  *prometheus.HistogramVec
@@ -66,6 +69,16 @@ func NewMetrics(registry *prometheus.Registry) *Metrics {
 			Name: "agent_fallback_total",
 			Help: "Total agent fallback replies.",
 		}, []string{"fallback_kind"}),
+		AgentPhaseDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "agent_phase_duration_seconds",
+			Help:    "Agent internal phase duration.",
+			Buckets: prometheus.DefBuckets,
+		}, []string{"phase", "status"}),
+		AgentPromptSegmentChars: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "agent_prompt_segment_chars",
+			Help:    "Agent prompt segment size in characters.",
+			Buckets: []float64{128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536},
+		}, []string{"segment"}),
 		ModelRequestsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "model_requests_total",
 			Help: "Total model requests.",
@@ -92,6 +105,11 @@ func NewMetrics(registry *prometheus.Registry) *Metrics {
 			Name: "rag_degraded_total",
 			Help: "Total degraded RAG searches.",
 		}, []string{"knowledge_base"}),
+		RAGPhaseDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "rag_phase_duration_seconds",
+			Help:    "RAG internal phase duration.",
+			Buckets: prometheus.DefBuckets,
+		}, []string{"knowledge_base", "phase", "status"}),
 		ToolCallsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "tool_calls_total",
 			Help: "Total tool calls.",
@@ -128,12 +146,15 @@ func NewMetrics(registry *prometheus.Registry) *Metrics {
 		metrics.AgentRunsTotal,
 		metrics.AgentRunDuration,
 		metrics.AgentFallbackTotal,
+		metrics.AgentPhaseDuration,
+		metrics.AgentPromptSegmentChars,
 		metrics.ModelRequestsTotal,
 		metrics.ModelRequestDuration,
 		metrics.ModelErrorsTotal,
 		metrics.RAGSearchTotal,
 		metrics.RAGSearchDuration,
 		metrics.RAGDegradedTotal,
+		metrics.RAGPhaseDuration,
 		metrics.ToolCallsTotal,
 		metrics.ToolCallDuration,
 		metrics.ToolErrorsTotal,
@@ -164,4 +185,12 @@ func ObserveDuration(histogram *prometheus.HistogramVec, labels prometheus.Label
 		return
 	}
 	histogram.With(labels).Observe(time.Since(start).Seconds())
+}
+
+// ObserveHistogram 记录任意数值型直方图。
+func ObserveHistogram(histogram *prometheus.HistogramVec, labels prometheus.Labels, value float64) {
+	if histogram == nil {
+		return
+	}
+	histogram.With(labels).Observe(value)
 }
