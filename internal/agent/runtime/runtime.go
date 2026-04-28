@@ -3,16 +3,21 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"strings"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+
 	"DND-AI-BOT/internal/agent/tools"
+	"DND-AI-BOT/internal/observability"
 )
 
 const (
 	defaultMaxSteps         = 8
 	defaultContextMax       = 40
 	defaultToolFailureLimit = 2
+	runtimeStepLogThreshold = 10 * time.Second
 )
 
 // Runtime 负责串联模型调用、工具执行和步骤积累。
@@ -20,15 +25,51 @@ type Runtime struct {
 	model    ModelAdapter
 	registry tools.Registry
 	executor tools.Executor
+	metrics  *observability.Metrics
+	logger   *slog.Logger
+}
+
+type RuntimeOption func(*Runtime)
+
+func WithRuntimeMetrics(metrics *observability.Metrics) RuntimeOption {
+	return func(runtime *Runtime) {
+		if metrics != nil {
+			runtime.metrics = metrics
+		}
+	}
+}
+
+func WithRuntimeLogger(logger *slog.Logger) RuntimeOption {
+	return func(runtime *Runtime) {
+		if logger != nil {
+			runtime.logger = logger
+		}
+	}
+}
+
+type runtimeStepBreakdown struct {
+	StepIndex  int
+	ToolName   string
+	OutputType string
+	Status     string
+	ModelTime  time.Duration
+	ToolTime   time.Duration
+	TotalTime  time.Duration
 }
 
 // NewRuntime 创建一个支持 ReAct 循环的 Runtime。
-func NewRuntime(model ModelAdapter, registry tools.Registry, executor tools.Executor) *Runtime {
-	return &Runtime{
+func NewRuntime(model ModelAdapter, registry tools.Registry, executor tools.Executor, options ...RuntimeOption) *Runtime {
+	runtime := &Runtime{
 		model:    model,
 		registry: registry,
 		executor: executor,
 	}
+	for _, option := range options {
+		if option != nil {
+			option(runtime)
+		}
+	}
+	return runtime
 }
 
 // Run 执行一轮 ReAct 流程，直到拿到最终回复或超出步数上限。
@@ -41,42 +82,106 @@ func (r *Runtime) Run(ctx context.Context, input RuntimeInput) (RuntimeOutput, e
 	toolSpecs := r.registry.List()
 	steps := make([]StepRecord, 0, input.MaxSteps)
 	toolFailureCount := 0
+	modelCallCount := 0
+	toolStepCount := 0
 
 	for i := 0; i < input.MaxSteps; i++ {
+		stepStartedAt := time.Now()
 		modelInput := buildModelInput(input, toolSpecs, steps)
+		modelStartedAt := time.Now()
 		modelOutput, err := r.model.Run(ctx, modelInput)
+		modelDuration := time.Since(modelStartedAt)
+		modelCallCount++
 		if err != nil {
+			r.recordModelCall("error", "invalid", modelStartedAt)
+			r.recordRuntimeStep("error", "invalid", stepStartedAt)
+			r.recordRunCounts("error", modelCallCount, toolStepCount)
+			r.logSlowRuntimeStep(input, runtimeStepBreakdown{
+				StepIndex:  i,
+				OutputType: "invalid",
+				Status:     "error",
+				ModelTime:  modelDuration,
+				TotalTime:  time.Since(stepStartedAt),
+			})
 			return RuntimeOutput{}, err
 		}
 		if err := validateModelOutput(modelOutput); err != nil {
+			r.recordModelCall("error", "invalid", modelStartedAt)
+			r.recordRuntimeStep("error", "invalid", stepStartedAt)
+			r.recordRunCounts("error", modelCallCount, toolStepCount)
+			r.logSlowRuntimeStep(input, runtimeStepBreakdown{
+				StepIndex:  i,
+				OutputType: "invalid",
+				Status:     "error",
+				ModelTime:  modelDuration,
+				TotalTime:  time.Since(stepStartedAt),
+			})
 			return RuntimeOutput{}, err
 		}
 
+		outputType := classifyModelOutput(modelOutput)
+		r.recordModelCall("success", outputType, modelStartedAt)
 		if isTerminalModelOutput(modelOutput) {
+			r.recordRuntimeStep("success", outputType, stepStartedAt)
+			r.recordRunCounts("success", modelCallCount, toolStepCount)
+			r.logSlowRuntimeStep(input, runtimeStepBreakdown{
+				StepIndex:  i,
+				OutputType: outputType,
+				Status:     "success",
+				ModelTime:  modelDuration,
+				TotalTime:  time.Since(stepStartedAt),
+			})
 			return RuntimeOutput{
 				Reply: modelOutput.Reply,
 				Steps: steps,
 			}, nil
 		}
 
+		toolStartedAt := time.Now()
 		toolOutput, err := r.executor.Execute(ctx, modelOutput.ToolRequest.Name, tools.CallInput{
 			SessionID: input.SessionID,
 			Raw:       modelOutput.ToolRequest.Input,
 			Now:       time.Now().UTC(),
 		})
+		toolDuration := time.Since(toolStartedAt)
+		toolStepCount++
 		if err != nil {
+			r.recordToolStep(modelOutput.ToolRequest.Name, "error", toolStartedAt)
+			r.recordRuntimeStep("error", outputType, stepStartedAt)
+			r.logSlowRuntimeStep(input, runtimeStepBreakdown{
+				StepIndex:  i,
+				ToolName:   modelOutput.ToolRequest.Name,
+				OutputType: outputType,
+				Status:     "error",
+				ModelTime:  modelDuration,
+				ToolTime:   toolDuration,
+				TotalTime:  time.Since(stepStartedAt),
+			})
 			toolFailureCount++
 			steps = append(steps, buildToolErrorStepRecord(modelOutput, err))
 			if toolFailureCount >= defaultToolFailureLimit {
+				r.recordRunCounts("tool_failure_limit", modelCallCount, toolStepCount)
 				return RuntimeOutput{}, ErrToolFailureLimitExceeded
 			}
 			continue
 		}
 		toolFailureCount = 0
+		r.recordToolStep(modelOutput.ToolRequest.Name, "success", toolStartedAt)
+		r.recordRuntimeStep("success", outputType, stepStartedAt)
+		r.logSlowRuntimeStep(input, runtimeStepBreakdown{
+			StepIndex:  i,
+			ToolName:   modelOutput.ToolRequest.Name,
+			OutputType: outputType,
+			Status:     "success",
+			ModelTime:  modelDuration,
+			ToolTime:   toolDuration,
+			TotalTime:  time.Since(stepStartedAt),
+		})
 
 		steps = append(steps, buildStepRecord(modelOutput, toolOutput))
 	}
 
+	r.recordRunCounts("step_limit", modelCallCount, toolStepCount)
 	return RuntimeOutput{}, ErrStepLimitExceeded
 }
 
@@ -133,6 +238,72 @@ func validateModelOutput(output ModelOutput) error {
 		return ErrInvalidModelOutput
 	}
 	return nil
+}
+
+func classifyModelOutput(output ModelOutput) string {
+	if isTerminalModelOutput(output) {
+		return "final_reply"
+	}
+	if isToolRequestModelOutput(output) {
+		return "tool_request"
+	}
+	return "invalid"
+}
+
+func (r *Runtime) recordModelCall(status string, outputType string, startedAt time.Time) {
+	if r.metrics == nil {
+		return
+	}
+	observability.ObserveDuration(r.metrics.RuntimeModelCallDuration, prometheus.Labels{
+		"status":      status,
+		"output_type": outputType,
+	}, startedAt)
+}
+
+func (r *Runtime) recordToolStep(toolName string, status string, startedAt time.Time) {
+	if r.metrics == nil {
+		return
+	}
+	observability.ObserveDuration(r.metrics.RuntimeToolStepDuration, prometheus.Labels{
+		"tool":   toolName,
+		"status": status,
+	}, startedAt)
+}
+
+func (r *Runtime) recordRuntimeStep(status string, outputType string, startedAt time.Time) {
+	if r.metrics == nil {
+		return
+	}
+	observability.ObserveDuration(r.metrics.RuntimeStepDuration, prometheus.Labels{
+		"status":      status,
+		"output_type": outputType,
+	}, startedAt)
+}
+
+func (r *Runtime) recordRunCounts(status string, modelCalls int, toolSteps int) {
+	if r.metrics == nil {
+		return
+	}
+	labels := prometheus.Labels{"status": status}
+	observability.ObserveHistogram(r.metrics.RuntimeModelCallsPerRun, labels, float64(modelCalls))
+	observability.ObserveHistogram(r.metrics.RuntimeToolStepsPerRun, labels, float64(toolSteps))
+}
+
+func (r *Runtime) logSlowRuntimeStep(input RuntimeInput, step runtimeStepBreakdown) {
+	if r.logger == nil || step.TotalTime < runtimeStepLogThreshold {
+		return
+	}
+	r.logger.Warn(
+		"runtime step latency",
+		"session_id", input.SessionID,
+		"step_index", step.StepIndex,
+		"tool", step.ToolName,
+		"output_type", step.OutputType,
+		"status", step.Status,
+		"model_ms", step.ModelTime.Milliseconds(),
+		"tool_ms", step.ToolTime.Milliseconds(),
+		"total_ms", step.TotalTime.Milliseconds(),
+	)
 }
 
 // buildStepRecord 将模型动作和工具观察结果合并为单个步骤记录。

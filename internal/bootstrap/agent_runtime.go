@@ -76,8 +76,14 @@ func BuildAgentRuntime(input AgentRuntimeInput) (*AgentRuntimeDependencies, erro
 		ModelAdapter: modelAdapter,
 		Registry:     toolRuntime.Registry,
 		Executor:     toolRuntime.Executor,
-		Runtime:      agentruntime.NewRuntime(modelAdapter, toolRuntime.Registry, toolRuntime.Executor),
-		Config:       config,
+		Runtime: agentruntime.NewRuntime(
+			modelAdapter,
+			toolRuntime.Registry,
+			toolRuntime.Executor,
+			agentruntime.WithRuntimeMetrics(input.Metrics),
+			agentruntime.WithRuntimeLogger(input.Logger),
+		),
+		Config: config,
 	}, nil
 }
 

@@ -35,6 +35,12 @@ type Metrics struct {
 	ToolErrorsTotal   *prometheus.CounterVec
 	SessionMemoryRuns *prometheus.CounterVec
 
+	RuntimeModelCallDuration *prometheus.HistogramVec
+	RuntimeToolStepDuration  *prometheus.HistogramVec
+	RuntimeStepDuration      *prometheus.HistogramVec
+	RuntimeModelCallsPerRun  *prometheus.HistogramVec
+	RuntimeToolStepsPerRun   *prometheus.HistogramVec
+
 	RateLimitChecksTotal  *prometheus.CounterVec
 	RateLimitBlockedTotal *prometheus.CounterVec
 	RateLimitErrorsTotal  *prometheus.CounterVec
@@ -127,6 +133,31 @@ func NewMetrics(registry *prometheus.Registry) *Metrics {
 			Name: "session_memory_refresh_total",
 			Help: "Total session memory refresh attempts.",
 		}, []string{"status"}),
+		RuntimeModelCallDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "runtime_model_call_duration_seconds",
+			Help:    "Runtime model call duration by output type.",
+			Buckets: prometheus.DefBuckets,
+		}, []string{"status", "output_type"}),
+		RuntimeToolStepDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "runtime_tool_step_duration_seconds",
+			Help:    "Runtime tool step duration.",
+			Buckets: prometheus.DefBuckets,
+		}, []string{"tool", "status"}),
+		RuntimeStepDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "runtime_step_duration_seconds",
+			Help:    "Runtime ReAct step duration.",
+			Buckets: prometheus.DefBuckets,
+		}, []string{"status", "output_type"}),
+		RuntimeModelCallsPerRun: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "runtime_model_calls_per_run",
+			Help:    "Number of model calls per runtime run.",
+			Buckets: []float64{1, 2, 3, 4, 5, 8, 13, 21},
+		}, []string{"status"}),
+		RuntimeToolStepsPerRun: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "runtime_tool_steps_per_run",
+			Help:    "Number of tool steps per runtime run.",
+			Buckets: []float64{0, 1, 2, 3, 4, 5, 8, 13, 21},
+		}, []string{"status"}),
 		RateLimitChecksTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "rate_limit_checks_total",
 			Help: "Total rate limit checks.",
@@ -159,6 +190,11 @@ func NewMetrics(registry *prometheus.Registry) *Metrics {
 		metrics.ToolCallDuration,
 		metrics.ToolErrorsTotal,
 		metrics.SessionMemoryRuns,
+		metrics.RuntimeModelCallDuration,
+		metrics.RuntimeToolStepDuration,
+		metrics.RuntimeStepDuration,
+		metrics.RuntimeModelCallsPerRun,
+		metrics.RuntimeToolStepsPerRun,
 		metrics.RateLimitChecksTotal,
 		metrics.RateLimitBlockedTotal,
 		metrics.RateLimitErrorsTotal,

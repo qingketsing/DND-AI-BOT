@@ -4,10 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
+
 	"DND-AI-BOT/internal/agent/tools"
+	"DND-AI-BOT/internal/observability"
 )
 
 func TestRuntimeRunReturnsDirectReply(t *testing.T) {
@@ -118,6 +122,53 @@ func TestRuntimeRunExecutesToolAndThenReturnsReply(t *testing.T) {
 	}
 	if model.inputs[1].Steps[0].ReasoningContent != "先看状态再答复。" {
 		t.Fatalf("expected second model call to receive reasoning content, got %+v", model.inputs[1].Steps[0])
+	}
+}
+
+func TestRuntimeRunRecordsModelAndToolStepMetrics(t *testing.T) {
+	metrics := observability.NewMetrics(prometheus.NewRegistry())
+	model := &fakeModelAdapter{
+		outputs: []ModelOutput{
+			{
+				ToolRequest: &ToolRequest{
+					Name:  "search_rules",
+					Input: json.RawMessage(`{"query":"攻击"}`),
+				},
+			},
+			{Reply: "攻击已结算。"},
+		},
+	}
+	runtime := NewRuntime(model, &fakeRegistry{
+		specs: []tools.ToolSpec{{Name: "search_rules", Description: "检索规则"}},
+	}, &fakeExecutor{
+		outputs: []tools.CallOutput{{ToolName: "search_rules", Content: map[string]any{"hits": 1}}},
+	}, WithRuntimeMetrics(metrics))
+
+	_, err := runtime.Run(context.Background(), RuntimeInput{
+		SessionID:   "session-1",
+		UserMessage: "攻击",
+		MaxSteps:    4,
+	})
+	if err != nil {
+		t.Fatalf("expected run to succeed, got %v", err)
+	}
+
+	recorder := httptest.NewRecorder()
+	metrics.Handler().ServeHTTP(recorder, httptest.NewRequest("GET", "/metrics", nil))
+	body := recorder.Body.String()
+	for _, expected := range []string{
+		"runtime_model_call_duration_seconds",
+		`output_type="tool_request"`,
+		`output_type="final_reply"`,
+		"runtime_tool_step_duration_seconds",
+		`tool="search_rules"`,
+		"runtime_step_duration_seconds",
+		"runtime_model_calls_per_run",
+		"runtime_tool_steps_per_run",
+	} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("expected %q in metrics output, got %s", expected, body)
+		}
 	}
 }
 
