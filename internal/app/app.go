@@ -74,6 +74,8 @@ func NewApp(deps *bootstrap.RuntimeDependencies, options ...AppOption) (*App, er
 	}
 
 	securityConfig := bootstrap.LoadSecurityConfigFromEnv()
+	agentObservabilityConfig := bootstrap.LoadAgentObservabilityConfigFromEnv()
+	agentLatencyLogConfig := toAppAgentLatencyBreakdownLogConfig(agentObservabilityConfig.LatencyBreakdownLogConfig)
 	sessionRepository := buildSessionRepository(deps)
 	gameStateRepository := buildGameStateRepository(deps)
 	encounterRepository := buildEncounterRepository(deps)
@@ -159,7 +161,7 @@ func NewApp(deps *bootstrap.RuntimeDependencies, options ...AppOption) (*App, er
 		if err != nil {
 			recordAgentPhase(appOptions.Metrics, "preloaded_context_build", "error", preloadedStartedAt)
 			breakdown.Total = time.Since(agentStartedAt)
-			logSlowAgentLatencyBreakdown(appOptions.Logger, input.SessionID, breakdown)
+			logAgentLatencyBreakdown(appOptions.Logger, input.SessionID, breakdown, agentLatencyLogConfig)
 			return service.AgentReplyResult{}, err
 		}
 		recordAgentPhase(appOptions.Metrics, "preloaded_context_build", "success", preloadedStartedAt)
@@ -183,12 +185,12 @@ func NewApp(deps *bootstrap.RuntimeDependencies, options ...AppOption) (*App, er
 		if err != nil {
 			recordAgentPhase(appOptions.Metrics, "runtime_total", "error", runtimeStartedAt)
 			breakdown.Total = time.Since(agentStartedAt)
-			logSlowAgentLatencyBreakdown(appOptions.Logger, input.SessionID, breakdown)
+			logAgentLatencyBreakdown(appOptions.Logger, input.SessionID, breakdown, agentLatencyLogConfig)
 			return service.AgentReplyResult{}, err
 		}
 		recordAgentPhase(appOptions.Metrics, "runtime_total", "success", runtimeStartedAt)
 		breakdown.Total = time.Since(agentStartedAt)
-		logSlowAgentLatencyBreakdown(appOptions.Logger, input.SessionID, breakdown)
+		logAgentLatencyBreakdown(appOptions.Logger, input.SessionID, breakdown, agentLatencyLogConfig)
 
 		steps := make([]service.AgentStep, 0, len(output.Steps))
 		for _, step := range output.Steps {
@@ -258,6 +260,13 @@ func NewApp(deps *bootstrap.RuntimeDependencies, options ...AppOption) (*App, er
 		SessionMemoryRefresher: sessionMemoryRefresher,
 		KnowledgeWarmupService: knowledgeWarmupService,
 	}, nil
+}
+
+func toAppAgentLatencyBreakdownLogConfig(config bootstrap.AgentLatencyBreakdownLogConfig) AgentLatencyBreakdownLogConfig {
+	return NormalizeAgentLatencyBreakdownLogConfig(AgentLatencyBreakdownLogConfig{
+		Mode:      AgentLatencyBreakdownLogMode(config.Mode),
+		Threshold: config.Threshold,
+	})
 }
 
 func toMiddlewareSecurityConfig(config bootstrap.SecurityConfig) httpMiddleware.SecurityConfig {

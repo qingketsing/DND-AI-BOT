@@ -11,7 +11,35 @@ import (
 	"DND-AI-BOT/internal/observability"
 )
 
-const agentLatencyBreakdownLogThreshold = 10 * time.Second
+type AgentLatencyBreakdownLogMode string
+
+const (
+	AgentLatencyBreakdownLogOff  AgentLatencyBreakdownLogMode = "off"
+	AgentLatencyBreakdownLogSlow AgentLatencyBreakdownLogMode = "slow"
+	AgentLatencyBreakdownLogAll  AgentLatencyBreakdownLogMode = "all"
+)
+
+type AgentLatencyBreakdownLogConfig struct {
+	Mode      AgentLatencyBreakdownLogMode
+	Threshold time.Duration
+}
+
+func DefaultAgentLatencyBreakdownLogConfig() AgentLatencyBreakdownLogConfig {
+	return AgentLatencyBreakdownLogConfig{
+		Mode:      AgentLatencyBreakdownLogSlow,
+		Threshold: 10 * time.Second,
+	}
+}
+
+func NormalizeAgentLatencyBreakdownLogConfig(config AgentLatencyBreakdownLogConfig) AgentLatencyBreakdownLogConfig {
+	if config.Mode != AgentLatencyBreakdownLogOff && config.Mode != AgentLatencyBreakdownLogSlow && config.Mode != AgentLatencyBreakdownLogAll {
+		config.Mode = AgentLatencyBreakdownLogSlow
+	}
+	if config.Threshold < 0 {
+		config.Threshold = 10 * time.Second
+	}
+	return config
+}
 
 type agentLatencyBreakdown struct {
 	WarmupBuild            time.Duration
@@ -53,8 +81,8 @@ func countChars(text string) int {
 	return utf8.RuneCountInString(text)
 }
 
-func logSlowAgentLatencyBreakdown(logger *slog.Logger, sessionID string, breakdown agentLatencyBreakdown) {
-	if logger == nil || breakdown.Total < agentLatencyBreakdownLogThreshold {
+func logAgentLatencyBreakdown(logger *slog.Logger, sessionID string, breakdown agentLatencyBreakdown, config AgentLatencyBreakdownLogConfig) {
+	if logger == nil || !shouldLogAgentLatencyBreakdown(breakdown.Total, config) {
 		return
 	}
 	logger.Warn(
@@ -71,4 +99,18 @@ func logSlowAgentLatencyBreakdown(logger *slog.Logger, sessionID string, breakdo
 		"final_system_prompt_chars", breakdown.FinalSystemPromptChars,
 		"user_message_chars", breakdown.UserMessageChars,
 	)
+}
+
+func shouldLogAgentLatencyBreakdown(total time.Duration, config AgentLatencyBreakdownLogConfig) bool {
+	config = NormalizeAgentLatencyBreakdownLogConfig(config)
+	switch config.Mode {
+	case AgentLatencyBreakdownLogOff:
+		return false
+	case AgentLatencyBreakdownLogAll:
+		return true
+	case AgentLatencyBreakdownLogSlow:
+		return total >= config.Threshold
+	default:
+		return total >= config.Threshold
+	}
 }
