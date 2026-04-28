@@ -1,11 +1,11 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"errors"
-	"net/http/httptest"
-	"bytes"
 	"log/slog"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -143,6 +143,60 @@ func TestDefaultExecutorExecuteLogsToolFailure(t *testing.T) {
 		if !strings.Contains(logOutput, expected) {
 			t.Fatalf("expected log output to contain %q, got %s", expected, logOutput)
 		}
+	}
+}
+
+func TestDefaultExecutorExecuteLogsSuccessfulToolWhenModeAll(t *testing.T) {
+	var buffer bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buffer, nil))
+	registry := NewInMemoryRegistry()
+	if err := registry.Register(executorStubTool{
+		name:   "search_lore",
+		output: CallOutput{ToolName: "search_lore"},
+	}); err != nil {
+		t.Fatalf("expected register to succeed, got %v", err)
+	}
+
+	executor := NewExecutor(
+		registry,
+		WithExecutorLogger(logger),
+		WithExecutorToolCallLogConfig(ToolCallLogConfig{Mode: ToolCallLogAll, Threshold: time.Second}),
+	)
+	_, err := executor.Execute(context.Background(), "search_lore", CallInput{SessionID: "session-1"})
+	if err != nil {
+		t.Fatalf("expected execute to succeed, got %v", err)
+	}
+
+	logOutput := buffer.String()
+	for _, expected := range []string{"tool execution completed", "tool=search_lore", "session_id=session-1", "status=success", "duration_ms="} {
+		if !strings.Contains(logOutput, expected) {
+			t.Fatalf("expected log output to contain %q, got %s", expected, logOutput)
+		}
+	}
+}
+
+func TestDefaultExecutorExecuteSkipsFastSuccessfulToolWhenModeSlow(t *testing.T) {
+	var buffer bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buffer, nil))
+	registry := NewInMemoryRegistry()
+	if err := registry.Register(executorStubTool{
+		name:   "search_lore",
+		output: CallOutput{ToolName: "search_lore"},
+	}); err != nil {
+		t.Fatalf("expected register to succeed, got %v", err)
+	}
+
+	executor := NewExecutor(
+		registry,
+		WithExecutorLogger(logger),
+		WithExecutorToolCallLogConfig(ToolCallLogConfig{Mode: ToolCallLogSlow, Threshold: time.Hour}),
+	)
+	_, err := executor.Execute(context.Background(), "search_lore", CallInput{SessionID: "session-1"})
+	if err != nil {
+		t.Fatalf("expected execute to succeed, got %v", err)
+	}
+	if logOutput := buffer.String(); strings.TrimSpace(logOutput) != "" {
+		t.Fatalf("expected no log output for fast successful tool, got %s", logOutput)
 	}
 }
 

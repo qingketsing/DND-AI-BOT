@@ -48,7 +48,12 @@ func BuildToolRuntime(input ToolRuntimeInput) (*ToolRuntimeDependencies, error) 
 
 	return &ToolRuntimeDependencies{
 		Registry: registry,
-		Executor: tools.NewExecutor(registry, tools.WithExecutorMetrics(input.Metrics), tools.WithExecutorLogger(input.Logger)),
+		Executor: tools.NewExecutor(
+			registry,
+			tools.WithExecutorMetrics(input.Metrics),
+			tools.WithExecutorLogger(input.Logger),
+			tools.WithExecutorToolCallLogConfig(LoadToolObservabilityConfigFromEnv().CallLogConfig),
+		),
 	}, nil
 }
 
