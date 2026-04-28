@@ -166,18 +166,20 @@ METRICS_BEARER_TOKEN=
 
 ### 工具调用观测
 
-工具调用耗时默认只记录超过 1 秒的成功调用，失败调用始终记录。调试时可以打开全量工具调用日志。
+模型调用和工具调用耗时默认只记录超过 1 秒的成功调用，失败调用始终记录。调试时可以打开全量日志。
 
 ```env
+RUNTIME_MODEL_CALL_LOG_MODE=slow
+RUNTIME_MODEL_CALL_LOG_THRESHOLD_MS=1000
 TOOL_CALL_LOG_MODE=slow
 TOOL_CALL_LOG_THRESHOLD_MS=1000
 ```
 
 可选模式：
 
-- `off`：不记录成功工具调用日志，失败仍记录。
-- `slow`：记录超过阈值的成功工具调用，失败始终记录。
-- `all`：记录所有成功和失败工具调用。
+- `off`：不记录成功调用日志，失败仍记录。
+- `slow`：记录超过阈值的成功调用，失败始终记录。
+- `all`：记录所有成功和失败调用。
 
 ### 接口限流
 

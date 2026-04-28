@@ -1,12 +1,15 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -168,6 +171,54 @@ func TestRuntimeRunRecordsModelAndToolStepMetrics(t *testing.T) {
 	} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("expected %q in metrics output, got %s", expected, body)
+		}
+	}
+}
+
+func TestRuntimeRunLogsEveryModelCallWhenModeAll(t *testing.T) {
+	var buffer bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buffer, nil))
+	model := &fakeModelAdapter{
+		outputs: []ModelOutput{
+			{
+				ToolRequest: &ToolRequest{
+					Name:  "search_lore",
+					Input: json.RawMessage(`{"query":"city"}`),
+				},
+			},
+			{Reply: "你继续前进。"},
+		},
+	}
+	runtime := NewRuntime(model, &fakeRegistry{
+		specs: []tools.ToolSpec{{Name: "search_lore", Description: "检索设定"}},
+	}, &fakeExecutor{
+		outputs: []tools.CallOutput{{ToolName: "search_lore", Content: map[string]any{"hits": 1}}},
+	}, WithRuntimeLogger(logger), WithRuntimeModelCallLogConfig(RuntimeModelCallLogConfig{
+		Mode:      RuntimeModelCallLogAll,
+		Threshold: time.Hour,
+	}))
+
+	_, err := runtime.Run(context.Background(), RuntimeInput{
+		SessionID:   "session-1",
+		UserMessage: "继续",
+		MaxSteps:    4,
+	})
+	if err != nil {
+		t.Fatalf("expected run to succeed, got %v", err)
+	}
+
+	logOutput := buffer.String()
+	for _, expected := range []string{
+		"runtime model call completed",
+		"step_index=0",
+		"output_type=tool_request",
+		"tool=search_lore",
+		"step_index=1",
+		"output_type=final_reply",
+		"duration_ms=",
+	} {
+		if !strings.Contains(logOutput, expected) {
+			t.Fatalf("expected log output to contain %q, got %s", expected, logOutput)
 		}
 	}
 }

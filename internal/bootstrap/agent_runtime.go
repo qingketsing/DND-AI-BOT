@@ -82,6 +82,7 @@ func BuildAgentRuntime(input AgentRuntimeInput) (*AgentRuntimeDependencies, erro
 			toolRuntime.Executor,
 			agentruntime.WithRuntimeMetrics(input.Metrics),
 			agentruntime.WithRuntimeLogger(input.Logger),
+			agentruntime.WithRuntimeModelCallLogConfig(LoadRuntimeObservabilityConfigFromEnv().ModelCallLogConfig),
 		),
 		Config: config,
 	}, nil

@@ -22,11 +22,12 @@ const (
 
 // Runtime 负责串联模型调用、工具执行和步骤积累。
 type Runtime struct {
-	model    ModelAdapter
-	registry tools.Registry
-	executor tools.Executor
-	metrics  *observability.Metrics
-	logger   *slog.Logger
+	model              ModelAdapter
+	registry           tools.Registry
+	executor           tools.Executor
+	metrics            *observability.Metrics
+	logger             *slog.Logger
+	modelCallLogConfig RuntimeModelCallLogConfig
 }
 
 type RuntimeOption func(*Runtime)
@@ -47,6 +48,12 @@ func WithRuntimeLogger(logger *slog.Logger) RuntimeOption {
 	}
 }
 
+func WithRuntimeModelCallLogConfig(config RuntimeModelCallLogConfig) RuntimeOption {
+	return func(runtime *Runtime) {
+		runtime.modelCallLogConfig = normalizeRuntimeModelCallLogConfig(config)
+	}
+}
+
 type runtimeStepBreakdown struct {
 	StepIndex  int
 	ToolName   string
@@ -57,12 +64,22 @@ type runtimeStepBreakdown struct {
 	TotalTime  time.Duration
 }
 
+type runtimeModelCallEvent struct {
+	StepIndex  int
+	Status     string
+	OutputType string
+	ToolName   string
+	Duration   time.Duration
+	Err        error
+}
+
 // NewRuntime 创建一个支持 ReAct 循环的 Runtime。
 func NewRuntime(model ModelAdapter, registry tools.Registry, executor tools.Executor, options ...RuntimeOption) *Runtime {
 	runtime := &Runtime{
-		model:    model,
-		registry: registry,
-		executor: executor,
+		model:              model,
+		registry:           registry,
+		executor:           executor,
+		modelCallLogConfig: DefaultRuntimeModelCallLogConfig(),
 	}
 	for _, option := range options {
 		if option != nil {
@@ -94,6 +111,13 @@ func (r *Runtime) Run(ctx context.Context, input RuntimeInput) (RuntimeOutput, e
 		modelCallCount++
 		if err != nil {
 			r.recordModelCall("error", "invalid", modelStartedAt)
+			r.logModelCall(input, runtimeModelCallEvent{
+				StepIndex:  i,
+				Status:     "error",
+				OutputType: "invalid",
+				Duration:   modelDuration,
+				Err:        err,
+			})
 			r.recordRuntimeStep("error", "invalid", stepStartedAt)
 			r.recordRunCounts("error", modelCallCount, toolStepCount)
 			r.logSlowRuntimeStep(input, runtimeStepBreakdown{
@@ -107,6 +131,13 @@ func (r *Runtime) Run(ctx context.Context, input RuntimeInput) (RuntimeOutput, e
 		}
 		if err := validateModelOutput(modelOutput); err != nil {
 			r.recordModelCall("error", "invalid", modelStartedAt)
+			r.logModelCall(input, runtimeModelCallEvent{
+				StepIndex:  i,
+				Status:     "error",
+				OutputType: "invalid",
+				Duration:   modelDuration,
+				Err:        err,
+			})
 			r.recordRuntimeStep("error", "invalid", stepStartedAt)
 			r.recordRunCounts("error", modelCallCount, toolStepCount)
 			r.logSlowRuntimeStep(input, runtimeStepBreakdown{
@@ -121,6 +152,13 @@ func (r *Runtime) Run(ctx context.Context, input RuntimeInput) (RuntimeOutput, e
 
 		outputType := classifyModelOutput(modelOutput)
 		r.recordModelCall("success", outputType, modelStartedAt)
+		r.logModelCall(input, runtimeModelCallEvent{
+			StepIndex:  i,
+			Status:     "success",
+			OutputType: outputType,
+			ToolName:   toolNameFromModelOutput(modelOutput),
+			Duration:   modelDuration,
+		})
 		if isTerminalModelOutput(modelOutput) {
 			r.recordRuntimeStep("success", outputType, stepStartedAt)
 			r.recordRunCounts("success", modelCallCount, toolStepCount)
@@ -250,6 +288,13 @@ func classifyModelOutput(output ModelOutput) string {
 	return "invalid"
 }
 
+func toolNameFromModelOutput(output ModelOutput) string {
+	if output.ToolRequest == nil {
+		return ""
+	}
+	return output.ToolRequest.Name
+}
+
 func (r *Runtime) recordModelCall(status string, outputType string, startedAt time.Time) {
 	if r.metrics == nil {
 		return
@@ -304,6 +349,43 @@ func (r *Runtime) logSlowRuntimeStep(input RuntimeInput, step runtimeStepBreakdo
 		"tool_ms", step.ToolTime.Milliseconds(),
 		"total_ms", step.TotalTime.Milliseconds(),
 	)
+}
+
+func (r *Runtime) logModelCall(input RuntimeInput, event runtimeModelCallEvent) {
+	if r.logger == nil || !shouldLogRuntimeModelCall(r.modelCallLogConfig, event.Duration, event.Status) {
+		return
+	}
+	attrs := []any{
+		"session_id", input.SessionID,
+		"step_index", event.StepIndex,
+		"status", event.Status,
+		"output_type", event.OutputType,
+		"tool", event.ToolName,
+		"duration_ms", event.Duration.Milliseconds(),
+	}
+	if event.Err != nil {
+		attrs = append(attrs, "error", event.Err)
+		r.logger.Warn("runtime model call failed", attrs...)
+		return
+	}
+	r.logger.Info("runtime model call completed", attrs...)
+}
+
+func shouldLogRuntimeModelCall(config RuntimeModelCallLogConfig, duration time.Duration, status string) bool {
+	config = normalizeRuntimeModelCallLogConfig(config)
+	if status == "error" {
+		return true
+	}
+	switch config.Mode {
+	case RuntimeModelCallLogOff:
+		return false
+	case RuntimeModelCallLogAll:
+		return true
+	case RuntimeModelCallLogSlow:
+		return duration >= config.Threshold
+	default:
+		return duration >= config.Threshold
+	}
 }
 
 // buildStepRecord 将模型动作和工具观察结果合并为单个步骤记录。
