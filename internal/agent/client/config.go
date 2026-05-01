@@ -27,6 +27,8 @@ type ModelRole string
 const (
 	// ModelRolePrimary 用于主 Agent 对话和工具决策。
 	ModelRolePrimary ModelRole = "primary"
+	// ModelRoleFast 用于轻量状态查询、短回复和后续意图路由。
+	ModelRoleFast ModelRole = "fast"
 	// ModelRoleSummarizer 用于会话摘要等后台压缩任务。
 	ModelRoleSummarizer ModelRole = "summarizer"
 )

@@ -177,3 +177,54 @@ func TestLoadAgentConfigFromEnvForRoleSummarizerOverridesConfiguredFields(t *tes
 		t.Fatalf("expected summary timeout 20, got %d", config.TimeoutSeconds)
 	}
 }
+
+func TestLoadAgentConfigFromEnvForRoleFastFallsBackToPrimary(t *testing.T) {
+	t.Setenv("MODEL_PROVIDER", "deepseek")
+	t.Setenv("MODEL_NAME", "deepseek-v4-flash")
+	t.Setenv("MODEL_API_KEY", "primary-secret")
+	t.Setenv("MODEL_BASE_URL", "https://primary.example.com")
+	t.Setenv("MODEL_TIMEOUT_SECONDS", "60")
+	t.Setenv("FAST_MODEL_PROVIDER", "")
+	t.Setenv("FAST_MODEL_NAME", "")
+	t.Setenv("FAST_MODEL_API_KEY", "")
+	t.Setenv("FAST_MODEL_BASE_URL", "")
+	t.Setenv("FAST_MODEL_TIMEOUT_SECONDS", "")
+
+	config, err := LoadAgentConfigFromEnvForRole(client.ModelRoleFast)
+	if err != nil {
+		t.Fatalf("expected fast fallback config to load, got %v", err)
+	}
+	if config.Provider != client.ProviderDeepSeek || config.Model != "deepseek-v4-flash" {
+		t.Fatalf("expected fast model to fallback to primary model config, got %+v", config)
+	}
+	if config.APIKey != "primary-secret" || config.BaseURL != "https://primary.example.com" || config.TimeoutSeconds != 60 {
+		t.Fatalf("expected fast model to fallback to primary credentials, got %+v", config)
+	}
+}
+
+func TestLoadAgentConfigFromEnvForRoleFastOverridesConfiguredFields(t *testing.T) {
+	t.Setenv("MODEL_PROVIDER", "deepseek")
+	t.Setenv("MODEL_NAME", "deepseek-v4-flash")
+	t.Setenv("MODEL_API_KEY", "primary-secret")
+	t.Setenv("MODEL_BASE_URL", "https://primary.example.com")
+	t.Setenv("MODEL_TIMEOUT_SECONDS", "60")
+	t.Setenv("FAST_MODEL_PROVIDER", "openai")
+	t.Setenv("FAST_MODEL_NAME", "gpt-5.4-mini")
+	t.Setenv("FAST_MODEL_API_KEY", "fast-secret")
+	t.Setenv("FAST_MODEL_BASE_URL", "https://fast.example.com")
+	t.Setenv("FAST_MODEL_TIMEOUT_SECONDS", "10")
+
+	config, err := LoadAgentConfigFromEnvForRole(client.ModelRoleFast)
+	if err != nil {
+		t.Fatalf("expected fast config to load, got %v", err)
+	}
+	if config.Provider != client.ProviderOpenAI {
+		t.Fatalf("expected provider %q, got %q", client.ProviderOpenAI, config.Provider)
+	}
+	if config.Model != "gpt-5.4-mini" || config.APIKey != "fast-secret" || config.BaseURL != "https://fast.example.com" {
+		t.Fatalf("expected fast-specific config, got %+v", config)
+	}
+	if config.TimeoutSeconds != 10 {
+		t.Fatalf("expected fast timeout 10, got %d", config.TimeoutSeconds)
+	}
+}

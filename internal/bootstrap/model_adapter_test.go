@@ -95,6 +95,33 @@ func TestBuildModelAdapterFromEnvForRoleBuildsSummarizerAdapter(t *testing.T) {
 	}
 }
 
+func TestBuildModelAdapterFromEnvForRoleBuildsFastAdapter(t *testing.T) {
+	t.Setenv("MODEL_PROVIDER", "mock")
+	t.Setenv("MODEL_NAME", "")
+	t.Setenv("MODEL_API_KEY", "")
+	t.Setenv("MODEL_BASE_URL", "")
+	t.Setenv("MODEL_TIMEOUT_SECONDS", "")
+	t.Setenv("FAST_MODEL_PROVIDER", "mock")
+	t.Setenv("FAST_MODEL_NAME", "")
+	t.Setenv("FAST_MODEL_API_KEY", "")
+	t.Setenv("FAST_MODEL_BASE_URL", "")
+	t.Setenv("FAST_MODEL_TIMEOUT_SECONDS", "10")
+
+	adapter, config, err := BuildModelAdapterFromEnvForRole(client.ModelRoleFast)
+	if err != nil {
+		t.Fatalf("expected fast adapter to build from env, got %v", err)
+	}
+	if adapter == nil {
+		t.Fatal("expected fast adapter to be created from env")
+	}
+	if config.Provider != client.ProviderMock {
+		t.Fatalf("expected provider %q, got %q", client.ProviderMock, config.Provider)
+	}
+	if config.TimeoutSeconds != 10 {
+		t.Fatalf("expected fast timeout 10, got %d", config.TimeoutSeconds)
+	}
+}
+
 func TestBuildModelAdapterFromEnvRejectsInvalidProvider(t *testing.T) {
 	t.Setenv("MODEL_PROVIDER", "unknown")
 	t.Setenv("MODEL_TIMEOUT_SECONDS", "60")

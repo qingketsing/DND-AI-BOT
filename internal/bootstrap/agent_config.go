@@ -27,6 +27,9 @@ func LoadAgentConfigFromEnv() (client.Config, error) {
 
 // LoadAgentConfigFromEnvForRole 从环境变量读取指定模型角色的配置。
 func LoadAgentConfigFromEnvForRole(role client.ModelRole) (client.Config, error) {
+	if role == client.ModelRoleFast {
+		return loadRoleConfigFromEnv("FAST_MODEL", "MODEL")
+	}
 	if role == client.ModelRoleSummarizer {
 		return loadRoleConfigFromEnv("SUMMARY_MODEL", "MODEL")
 	}
