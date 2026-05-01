@@ -68,6 +68,33 @@ func TestBuildModelAdapterFromEnvBuildsMockAdapter(t *testing.T) {
 	}
 }
 
+func TestBuildModelAdapterFromEnvForRoleBuildsSummarizerAdapter(t *testing.T) {
+	t.Setenv("MODEL_PROVIDER", "mock")
+	t.Setenv("MODEL_NAME", "")
+	t.Setenv("MODEL_API_KEY", "")
+	t.Setenv("MODEL_BASE_URL", "")
+	t.Setenv("MODEL_TIMEOUT_SECONDS", "")
+	t.Setenv("SUMMARY_MODEL_PROVIDER", "mock")
+	t.Setenv("SUMMARY_MODEL_NAME", "")
+	t.Setenv("SUMMARY_MODEL_API_KEY", "")
+	t.Setenv("SUMMARY_MODEL_BASE_URL", "")
+	t.Setenv("SUMMARY_MODEL_TIMEOUT_SECONDS", "30")
+
+	adapter, config, err := BuildModelAdapterFromEnvForRole(client.ModelRoleSummarizer)
+	if err != nil {
+		t.Fatalf("expected summarizer adapter to build from env, got %v", err)
+	}
+	if adapter == nil {
+		t.Fatal("expected summarizer adapter to be created from env")
+	}
+	if config.Provider != client.ProviderMock {
+		t.Fatalf("expected provider %q, got %q", client.ProviderMock, config.Provider)
+	}
+	if config.TimeoutSeconds != 30 {
+		t.Fatalf("expected summarizer timeout 30, got %d", config.TimeoutSeconds)
+	}
+}
+
 func TestBuildModelAdapterFromEnvRejectsInvalidProvider(t *testing.T) {
 	t.Setenv("MODEL_PROVIDER", "unknown")
 	t.Setenv("MODEL_TIMEOUT_SECONDS", "60")
@@ -109,5 +136,23 @@ func TestLogModelAdapterReadyDoesNotLogAPIKey(t *testing.T) {
 	}
 	if strings.Contains(output, "secret") {
 		t.Fatalf("expected api key to be omitted from logs, got %q", output)
+	}
+}
+
+func TestLogModelAdapterReadyForRoleLogsRole(t *testing.T) {
+	buffer := bytes.NewBuffer(nil)
+	logger := log.New(buffer, "", 0)
+
+	LogModelAdapterReadyForRole(logger, client.ModelRoleSummarizer, client.Config{
+		Provider:       client.ProviderMock,
+		TimeoutSeconds: 30,
+	})
+
+	output := buffer.String()
+	if !strings.Contains(output, "role=summarizer") {
+		t.Fatalf("expected role to be logged, got %q", output)
+	}
+	if !strings.Contains(output, "provider=mock") {
+		t.Fatalf("expected provider to be logged, got %q", output)
 	}
 }

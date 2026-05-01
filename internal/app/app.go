@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"DND-AI-BOT/internal/agent/client"
 	agentcontext "DND-AI-BOT/internal/agent/context"
 	agentprompt "DND-AI-BOT/internal/agent/prompt"
 	agentruntime "DND-AI-BOT/internal/agent/runtime"
@@ -108,13 +109,19 @@ func NewApp(deps *bootstrap.RuntimeDependencies, options ...AppOption) (*App, er
 	if err != nil {
 		return nil, err
 	}
-	bootstrap.LogModelAdapterReady(log.Default(), agentRuntime.Config)
+	bootstrap.LogModelAdapterReadyForRole(log.Default(), client.ModelRolePrimary, agentRuntime.Config)
 	knowledgeWarmupService := service.NewKnowledgeWarmupService(
 		searchRuntime.RuleSearcher,
 		searchRuntime.LoreSearcher,
 		gameStateRepository,
 	)
-	sessionSummarizer := service.NewLLMSessionSummarizer(newRuntimeModelSummaryAdapter(agentRuntime.ModelAdapter))
+	summaryAdapter, summaryConfig, err := bootstrap.BuildModelAdapterFromEnvForRole(client.ModelRoleSummarizer)
+	if err != nil {
+		return nil, err
+	}
+	summaryAdapter = client.NewObservedModelAdapter(summaryAdapter, summaryConfig, appOptions.Metrics)
+	bootstrap.LogModelAdapterReadyForRole(log.Default(), client.ModelRoleSummarizer, summaryConfig)
+	sessionSummarizer := service.NewLLMSessionSummarizer(newRuntimeModelSummaryAdapter(summaryAdapter))
 	sessionMemoryRefresher := service.NewSessionMemoryRefreshService(
 		sessionRepository,
 		sessionMemoryService,

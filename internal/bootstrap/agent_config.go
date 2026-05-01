@@ -22,21 +22,33 @@ var (
 
 // LoadAgentConfigFromEnv 从环境变量读取模型配置并转换为统一 client.Config。
 func LoadAgentConfigFromEnv() (client.Config, error) {
-	provider, err := parseProvider(os.Getenv("MODEL_PROVIDER"))
+	return LoadAgentConfigFromEnvForRole(client.ModelRolePrimary)
+}
+
+// LoadAgentConfigFromEnvForRole 从环境变量读取指定模型角色的配置。
+func LoadAgentConfigFromEnvForRole(role client.ModelRole) (client.Config, error) {
+	if role == client.ModelRoleSummarizer {
+		return loadRoleConfigFromEnv("SUMMARY_MODEL", "MODEL")
+	}
+	return loadRoleConfigFromEnv("MODEL", "")
+}
+
+func loadRoleConfigFromEnv(prefix string, fallbackPrefix string) (client.Config, error) {
+	provider, err := parseProvider(envWithFallback(prefix+"_PROVIDER", fallbackPrefix+"_PROVIDER"))
 	if err != nil {
 		return client.Config{}, err
 	}
 
-	timeoutSeconds, err := parseTimeoutSeconds(os.Getenv("MODEL_TIMEOUT_SECONDS"))
+	timeoutSeconds, err := parseTimeoutSeconds(envWithFallback(prefix+"_TIMEOUT_SECONDS", fallbackPrefix+"_TIMEOUT_SECONDS"))
 	if err != nil {
 		return client.Config{}, err
 	}
 
 	config := normalizeModelConfig(client.Config{
 		Provider:       provider,
-		Model:          os.Getenv("MODEL_NAME"),
-		APIKey:         os.Getenv("MODEL_API_KEY"),
-		BaseURL:        os.Getenv("MODEL_BASE_URL"),
+		Model:          envWithFallback(prefix+"_NAME", fallbackPrefix+"_NAME"),
+		APIKey:         envWithFallback(prefix+"_API_KEY", fallbackPrefix+"_API_KEY"),
+		BaseURL:        envWithFallback(prefix+"_BASE_URL", fallbackPrefix+"_BASE_URL"),
 		TimeoutSeconds: timeoutSeconds,
 	})
 
@@ -45,6 +57,14 @@ func LoadAgentConfigFromEnv() (client.Config, error) {
 	}
 
 	return config, nil
+}
+
+func envWithFallback(name string, fallbackName string) string {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value != "" || strings.TrimSpace(fallbackName) == "" {
+		return value
+	}
+	return strings.TrimSpace(os.Getenv(fallbackName))
 }
 
 // parseProvider 将环境变量字符串转换为统一的模型厂商枚举。

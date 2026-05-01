@@ -46,7 +46,7 @@ func BuildAgentRuntime(input AgentRuntimeInput) (*AgentRuntimeDependencies, erro
 		return nil, err
 	}
 
-	modelAdapter, config, err := BuildModelAdapterFromEnv()
+	modelAdapter, config, err := BuildModelAdapterFromEnvForRole(client.ModelRolePrimary)
 	if err != nil {
 		return nil, err
 	}

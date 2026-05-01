@@ -110,3 +110,70 @@ func TestLoadAgentConfigFromEnvUsesDefaultTimeout(t *testing.T) {
 		t.Fatalf("expected default timeout 60, got %d", config.TimeoutSeconds)
 	}
 }
+
+func TestLoadAgentConfigFromEnvForRolePrimaryUsesModelEnv(t *testing.T) {
+	t.Setenv("MODEL_PROVIDER", "mock")
+	t.Setenv("MODEL_NAME", "")
+	t.Setenv("MODEL_API_KEY", "")
+	t.Setenv("MODEL_BASE_URL", "")
+	t.Setenv("MODEL_TIMEOUT_SECONDS", "")
+
+	config, err := LoadAgentConfigFromEnvForRole(client.ModelRolePrimary)
+	if err != nil {
+		t.Fatalf("expected primary config to load, got %v", err)
+	}
+	if config.Provider != client.ProviderMock {
+		t.Fatalf("expected provider %q, got %q", client.ProviderMock, config.Provider)
+	}
+}
+
+func TestLoadAgentConfigFromEnvForRoleSummarizerFallsBackToPrimary(t *testing.T) {
+	t.Setenv("MODEL_PROVIDER", "deepseek")
+	t.Setenv("MODEL_NAME", "deepseek-v4-flash")
+	t.Setenv("MODEL_API_KEY", "primary-secret")
+	t.Setenv("MODEL_BASE_URL", "https://primary.example.com")
+	t.Setenv("MODEL_TIMEOUT_SECONDS", "60")
+	t.Setenv("SUMMARY_MODEL_PROVIDER", "")
+	t.Setenv("SUMMARY_MODEL_NAME", "")
+	t.Setenv("SUMMARY_MODEL_API_KEY", "")
+	t.Setenv("SUMMARY_MODEL_BASE_URL", "")
+	t.Setenv("SUMMARY_MODEL_TIMEOUT_SECONDS", "")
+
+	config, err := LoadAgentConfigFromEnvForRole(client.ModelRoleSummarizer)
+	if err != nil {
+		t.Fatalf("expected summarizer fallback config to load, got %v", err)
+	}
+	if config.Provider != client.ProviderDeepSeek || config.Model != "deepseek-v4-flash" {
+		t.Fatalf("expected summarizer to fallback to primary model config, got %+v", config)
+	}
+	if config.APIKey != "primary-secret" || config.BaseURL != "https://primary.example.com" || config.TimeoutSeconds != 60 {
+		t.Fatalf("expected summarizer to fallback to primary credentials, got %+v", config)
+	}
+}
+
+func TestLoadAgentConfigFromEnvForRoleSummarizerOverridesConfiguredFields(t *testing.T) {
+	t.Setenv("MODEL_PROVIDER", "deepseek")
+	t.Setenv("MODEL_NAME", "deepseek-v4-flash")
+	t.Setenv("MODEL_API_KEY", "primary-secret")
+	t.Setenv("MODEL_BASE_URL", "https://primary.example.com")
+	t.Setenv("MODEL_TIMEOUT_SECONDS", "60")
+	t.Setenv("SUMMARY_MODEL_PROVIDER", "openai")
+	t.Setenv("SUMMARY_MODEL_NAME", "gpt-5.4-mini")
+	t.Setenv("SUMMARY_MODEL_API_KEY", "summary-secret")
+	t.Setenv("SUMMARY_MODEL_BASE_URL", "https://summary.example.com")
+	t.Setenv("SUMMARY_MODEL_TIMEOUT_SECONDS", "20")
+
+	config, err := LoadAgentConfigFromEnvForRole(client.ModelRoleSummarizer)
+	if err != nil {
+		t.Fatalf("expected summarizer config to load, got %v", err)
+	}
+	if config.Provider != client.ProviderOpenAI {
+		t.Fatalf("expected provider %q, got %q", client.ProviderOpenAI, config.Provider)
+	}
+	if config.Model != "gpt-5.4-mini" || config.APIKey != "summary-secret" || config.BaseURL != "https://summary.example.com" {
+		t.Fatalf("expected summary-specific config, got %+v", config)
+	}
+	if config.TimeoutSeconds != 20 {
+		t.Fatalf("expected summary timeout 20, got %d", config.TimeoutSeconds)
+	}
+}

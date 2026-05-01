@@ -20,3 +20,13 @@ type Config struct {
 	BaseURL        string
 	TimeoutSeconds int
 }
+
+// ModelRole 表示同一应用内不同用途的模型配置角色。
+type ModelRole string
+
+const (
+	// ModelRolePrimary 用于主 Agent 对话和工具决策。
+	ModelRolePrimary ModelRole = "primary"
+	// ModelRoleSummarizer 用于会话摘要等后台压缩任务。
+	ModelRoleSummarizer ModelRole = "summarizer"
+)
