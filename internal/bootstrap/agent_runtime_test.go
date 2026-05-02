@@ -38,8 +38,17 @@ func TestBuildAgentRuntimeBuildsRuntimeDependencies(t *testing.T) {
 	if deps.Runtime == nil {
 		t.Fatal("expected runtime to be created")
 	}
+	if deps.FastModelAdapter == nil {
+		t.Fatal("expected fast model adapter to be created")
+	}
+	if deps.FastRuntime == nil {
+		t.Fatal("expected fast runtime to be created")
+	}
 	if deps.Config.Provider != client.ProviderMock {
 		t.Fatalf("expected provider %q, got %q", client.ProviderMock, deps.Config.Provider)
+	}
+	if deps.FastConfig.Provider != client.ProviderMock {
+		t.Fatalf("expected fast provider %q, got %q", client.ProviderMock, deps.FastConfig.Provider)
 	}
 }
 

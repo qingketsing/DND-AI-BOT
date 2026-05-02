@@ -21,11 +21,14 @@ var (
 
 // AgentRuntimeDependencies 承载已经组装完成的 Agent Runtime 依赖。
 type AgentRuntimeDependencies struct {
-	ModelAdapter client.ModelAdapter
-	Registry     tools.Registry
-	Executor     tools.Executor
-	Runtime      *agentruntime.Runtime
-	Config       client.Config
+	ModelAdapter     client.ModelAdapter
+	FastModelAdapter client.ModelAdapter
+	Registry         tools.Registry
+	Executor         tools.Executor
+	Runtime          *agentruntime.Runtime
+	FastRuntime      *agentruntime.Runtime
+	Config           client.Config
+	FastConfig       client.Config
 }
 
 // AgentRuntimeInput 定义组装 Agent Runtime 所需的最小业务依赖。
@@ -51,6 +54,11 @@ func BuildAgentRuntime(input AgentRuntimeInput) (*AgentRuntimeDependencies, erro
 		return nil, err
 	}
 	modelAdapter = client.NewObservedModelAdapter(modelAdapter, config, input.Metrics)
+	fastModelAdapter, fastConfig, err := BuildModelAdapterFromEnvForRole(client.ModelRoleFast)
+	if err != nil {
+		return nil, err
+	}
+	fastModelAdapter = client.NewObservedModelAdapter(fastModelAdapter, fastConfig, input.Metrics)
 
 	ruleSearcher := input.RuleSearcher
 	loreSearcher := input.LoreSearcher
@@ -72,19 +80,21 @@ func BuildAgentRuntime(input AgentRuntimeInput) (*AgentRuntimeDependencies, erro
 		return nil, err
 	}
 
+	runtimeOptions := []agentruntime.RuntimeOption{
+		agentruntime.WithRuntimeMetrics(input.Metrics),
+		agentruntime.WithRuntimeLogger(input.Logger),
+		agentruntime.WithRuntimeModelCallLogConfig(LoadRuntimeObservabilityConfigFromEnv().ModelCallLogConfig),
+	}
+
 	return &AgentRuntimeDependencies{
-		ModelAdapter: modelAdapter,
-		Registry:     toolRuntime.Registry,
-		Executor:     toolRuntime.Executor,
-		Runtime: agentruntime.NewRuntime(
-			modelAdapter,
-			toolRuntime.Registry,
-			toolRuntime.Executor,
-			agentruntime.WithRuntimeMetrics(input.Metrics),
-			agentruntime.WithRuntimeLogger(input.Logger),
-			agentruntime.WithRuntimeModelCallLogConfig(LoadRuntimeObservabilityConfigFromEnv().ModelCallLogConfig),
-		),
-		Config: config,
+		ModelAdapter:     modelAdapter,
+		FastModelAdapter: fastModelAdapter,
+		Registry:         toolRuntime.Registry,
+		Executor:         toolRuntime.Executor,
+		Runtime:          agentruntime.NewRuntime(modelAdapter, toolRuntime.Registry, toolRuntime.Executor, runtimeOptions...),
+		FastRuntime:      agentruntime.NewRuntime(fastModelAdapter, toolRuntime.Registry, toolRuntime.Executor, runtimeOptions...),
+		Config:           config,
+		FastConfig:       fastConfig,
 	}, nil
 }
 
