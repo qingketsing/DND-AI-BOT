@@ -2,6 +2,7 @@ package soak
 
 import (
 	"context"
+	"log"
 	"path/filepath"
 	"strings"
 	"time"
@@ -19,7 +20,13 @@ func RunSoakEval(ctx context.Context, config SoakConfig) (*SoakReport, error) {
 	}
 
 	httpClient := NewGameHTTPClient(config.BaseURL, config.UserToken, nil)
-	runner := NewRunner(config, NewPlayerSimulator(playerAdapter), httpClient, NewJudge(judgeAdapter))
+	runner := NewRunner(
+		config,
+		NewPlayerSimulator(playerAdapter),
+		httpClient,
+		NewJudge(judgeAdapter),
+		WithRoundReporter(BuildCheckpointReporter(config.OutputPath)),
+	)
 
 	runCtx := ctx
 	cancel := func() {}
@@ -41,6 +48,30 @@ func RunSoakEval(ctx context.Context, config SoakConfig) (*SoakReport, error) {
 		}
 	}
 	return report, nil
+}
+
+// BuildCheckpointReporter returns a reporter that logs progress and writes partial reports every round.
+func BuildCheckpointReporter(outputPath string) RoundReporter {
+	return func(record RoundRecord, report SoakReport) {
+		log.Printf(
+			"soak eval round completed: round=%d success=%t score=%.2f latency_ms=%d success_rate=%.2f failures=%v",
+			record.Round,
+			record.Success,
+			record.Score,
+			record.LatencyMS,
+			report.SuccessRate,
+			record.FailureReasons,
+		)
+		if strings.TrimSpace(outputPath) == "" {
+			return
+		}
+		if err := WriteReport(outputPath, report); err != nil {
+			log.Printf("soak eval checkpoint JSON write failed: round=%d error=%v", record.Round, err)
+		}
+		if err := WriteMarkdownReport(markdownReportPath(outputPath), report); err != nil {
+			log.Printf("soak eval checkpoint Markdown write failed: round=%d error=%v", record.Round, err)
+		}
+	}
 }
 
 func markdownReportPath(jsonPath string) string {

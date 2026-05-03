@@ -3,9 +3,11 @@ package soak
 import (
 	"context"
 	"errors"
+	"fmt"
 )
 
 const defaultRounds = 50
+const FailureReasonJudgeError = "judge_error"
 
 var ErrInvalidRunner = errors.New("invalid soak runner")
 
@@ -26,15 +28,35 @@ type JudgeEvaluator interface {
 
 // Runner coordinates player simulation, backend calls, and LLM judging.
 type Runner struct {
-	config SoakConfig
-	player Player
-	sender MessageSender
-	judge  JudgeEvaluator
+	config        SoakConfig
+	player        Player
+	sender        MessageSender
+	judge         JudgeEvaluator
+	roundReporter RoundReporter
+}
+
+// RoundReporter observes one completed round and the current partial report.
+type RoundReporter func(record RoundRecord, report SoakReport)
+
+// RunnerOption configures a Runner.
+type RunnerOption func(*Runner)
+
+// WithRoundReporter registers a per-round observer for logs or checkpoint writes.
+func WithRoundReporter(reporter RoundReporter) RunnerOption {
+	return func(runner *Runner) {
+		runner.roundReporter = reporter
+	}
 }
 
 // NewRunner creates a soak evaluation runner.
-func NewRunner(config SoakConfig, player Player, sender MessageSender, judge JudgeEvaluator) *Runner {
-	return &Runner{config: config, player: player, sender: sender, judge: judge}
+func NewRunner(config SoakConfig, player Player, sender MessageSender, judge JudgeEvaluator, options ...RunnerOption) *Runner {
+	runner := &Runner{config: config, player: player, sender: sender, judge: judge}
+	for _, option := range options {
+		if option != nil {
+			option(runner)
+		}
+	}
+	return runner
 }
 
 // Run executes the configured number of long-session test rounds.
@@ -64,7 +86,7 @@ func (r *Runner) Run(ctx context.Context) (*SoakReport, error) {
 			return nil, err
 		}
 
-		judgeResult, err := r.judge.Evaluate(ctx, JudgeInput{
+		judgeResult, judgeErr := r.judge.Evaluate(ctx, JudgeInput{
 			Scenario:      r.config.Scenario,
 			Round:         round,
 			UserInput:     userInput,
@@ -73,8 +95,13 @@ func (r *Runner) Run(ctx context.Context) (*SoakReport, error) {
 			HTTPStatus:    messageResult.HTTPStatus,
 			LatencyMS:     messageResult.LatencyMS,
 		})
-		if err != nil {
-			return nil, err
+		if judgeErr != nil {
+			judgeResult = JudgeResult{
+				Success:        false,
+				Score:          0,
+				FailureReasons: []string{FailureReasonJudgeError},
+				Comment:        fmt.Sprintf("judge evaluation failed: %v", judgeErr),
+			}
 		}
 
 		records = append(records, RoundRecord{
@@ -88,6 +115,9 @@ func (r *Runner) Run(ctx context.Context) (*SoakReport, error) {
 			FailureReasons: append([]string(nil), judgeResult.FailureReasons...),
 			JudgeComment:   judgeResult.Comment,
 		})
+		if r.roundReporter != nil {
+			r.roundReporter(records[len(records)-1], BuildReport(r.config.SessionID, records))
+		}
 	}
 
 	report := BuildReport(r.config.SessionID, records)

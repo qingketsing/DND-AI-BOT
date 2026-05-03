@@ -30,12 +30,20 @@ GOCACHE=/tmp/go-build go run ./cmd/soak_eval \
   --output reports/eval/soak_the_city_50.json
 ```
 
-The evaluator writes both:
+The evaluator writes both files after every completed round, so an interrupted run still leaves a partial report:
 
 ```text
 reports/eval/soak_the_city_50.json
 reports/eval/soak_the_city_50.md
 ```
+
+Each completed round also logs:
+
+```text
+soak eval round completed: round=12 success=true score=0.90 latency_ms=12345 success_rate=0.75 failures=[]
+```
+
+If Judge LLM returns malformed JSON, the runner records that round as failed with `judge_error` and continues instead of aborting the whole 50-round run.
 
 The backend currently authenticates session APIs through the `dnd_auth_session` cookie. `EVAL_USER_TOKEN` should therefore be the auth session token value. The HTTP client also sends `Authorization: Bearer <token>` for compatibility with future auth middleware.
 
