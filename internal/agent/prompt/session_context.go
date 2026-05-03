@@ -5,19 +5,23 @@ import (
 	"strings"
 
 	agentcontext "DND-AI-BOT/internal/agent/context"
+	"DND-AI-BOT/internal/game/combat"
 	"DND-AI-BOT/internal/game/state"
 	"DND-AI-BOT/internal/model"
 )
 
 // ComposePreloadedSessionContextPrompt 将每轮必需的会话上下文压缩为 system prompt 片段。
-func ComposePreloadedSessionContextPrompt(agentCtx agentcontext.AgentContext, gameState *state.GameState, memory *model.SessionMemory) string {
-	sections := make([]string, 0, 4)
+func ComposePreloadedSessionContextPrompt(agentCtx agentcontext.AgentContext, gameState *state.GameState, encounter *combat.Encounter, memory *model.SessionMemory) string {
+	sections := make([]string, 0, 5)
 
 	if base := renderAgentContext(agentCtx); base != "" {
 		sections = append(sections, base)
 	}
 	if game := renderGameStateContext(gameState); game != "" {
 		sections = append(sections, game)
+	}
+	if combat := renderEncounterContext(encounter); combat != "" {
+		sections = append(sections, combat)
 	}
 	if mem := ComposeSessionMemoryPrompt(memory); mem != "" {
 		sections = append(sections, mem)
@@ -137,4 +141,50 @@ func renderCharacterDraft(draft *state.CharacterDraft) string {
 		return ""
 	}
 	return "- 角色创建草稿：" + strings.Join(parts, ", ")
+}
+
+func renderEncounterContext(encounter *combat.Encounter) string {
+	if encounter == nil {
+		return ""
+	}
+
+	lines := []string{
+		fmt.Sprintf("- encounter_id=%s", strings.TrimSpace(encounter.ID)),
+		fmt.Sprintf("- round=%d", encounter.Round),
+		fmt.Sprintf("- turn_index=%d", encounter.TurnIndex),
+	}
+	if current, ok := encounter.CurrentCombatant(); ok {
+		lines = append(lines, "- 当前行动单位="+renderCombatantHeadline(current))
+	}
+	if len(encounter.Combatants) > 0 {
+		lines = append(lines, "- 战斗单位：")
+		for _, combatant := range encounter.Combatants {
+			lines = append(lines, "  - "+renderCombatantLine(combatant))
+		}
+	}
+	return "encounter_state：\n" + strings.Join(lines, "\n")
+}
+
+func renderCombatantHeadline(combatant combat.Combatant) string {
+	name := strings.TrimSpace(combatant.Name)
+	if name == "" {
+		name = strings.TrimSpace(combatant.ID)
+	}
+	return name
+}
+
+func renderCombatantLine(combatant combat.Combatant) string {
+	name := strings.TrimSpace(combatant.Name)
+	if name == "" {
+		name = strings.TrimSpace(combatant.ID)
+	}
+	return fmt.Sprintf(
+		"%s, side=%s, hp=%d/%d, ac=%d, status=%s",
+		name,
+		strings.TrimSpace(string(combatant.Side)),
+		combatant.CurrentHP,
+		combatant.MaxHP,
+		combatant.ArmorClass,
+		strings.TrimSpace(string(combatant.Status)),
+	)
 }

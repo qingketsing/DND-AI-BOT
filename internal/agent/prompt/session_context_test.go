@@ -6,6 +6,7 @@ import (
 	"time"
 
 	agentcontext "DND-AI-BOT/internal/agent/context"
+	"DND-AI-BOT/internal/game/combat"
 	"DND-AI-BOT/internal/game/state"
 	"DND-AI-BOT/internal/model"
 )
@@ -46,8 +47,12 @@ func TestComposePreloadedSessionContextPromptRendersRecentMessagesDraftAndMemory
 		CurrentObjective: "完成角色卡。",
 		RecentKeyEvents:  []string{"用户选择使用标准点数"},
 	}
+	encounter := combat.NewEncounter("encounter-1", "session-1", []combat.Combatant{
+		combat.NewCombatant("hero-1", "Qingke", combat.CombatSideParty, 13, 16, 12),
+		combat.NewCombatant("scrap-1", "扭曲的拾荒者", combat.CombatSideEnemy, 22, 12, 10),
+	}, now)
 
-	result := ComposePreloadedSessionContextPrompt(agentCtx, gameState, memory)
+	result := ComposePreloadedSessionContextPrompt(agentCtx, gameState, encounter, memory)
 
 	for _, expected := range []string{
 		"自动预加载会话上下文",
@@ -60,6 +65,13 @@ func TestComposePreloadedSessionContextPromptRendersRecentMessagesDraftAndMemory
 		"class=战士",
 		"ability_method=标准点数",
 		"pending_fields=ability_scores",
+		"encounter_state",
+		"round=1",
+		"turn_index=0",
+		"当前行动单位=Qingke",
+		"扭曲的拾荒者",
+		"hp=22/22",
+		"ac=12",
 		"当前会话长期记忆",
 		"完成角色卡",
 	} {
@@ -70,7 +82,7 @@ func TestComposePreloadedSessionContextPromptRendersRecentMessagesDraftAndMemory
 }
 
 func TestComposePreloadedSessionContextPromptReturnsEmptyWhenNoContext(t *testing.T) {
-	result := ComposePreloadedSessionContextPrompt(agentcontext.AgentContext{}, nil, nil)
+	result := ComposePreloadedSessionContextPrompt(agentcontext.AgentContext{}, nil, nil, nil)
 	if result != "" {
 		t.Fatalf("expected empty prompt without context, got %q", result)
 	}

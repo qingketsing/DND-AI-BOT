@@ -7,6 +7,7 @@ import (
 	"time"
 
 	agentcontext "DND-AI-BOT/internal/agent/context"
+	"DND-AI-BOT/internal/game/combat"
 	"DND-AI-BOT/internal/game/state"
 	"DND-AI-BOT/internal/model"
 	"DND-AI-BOT/internal/repository"
@@ -39,6 +40,11 @@ func TestBuildPreloadedContextPromptLoadsRecentMessagesGameStateAndSessionMemory
 		},
 	}
 	gameStates := &fakePreloadGameStateReader{state: gameState}
+	encounter := combat.NewEncounter("encounter-1", "session-1", []combat.Combatant{
+		combat.NewCombatant("hero-1", "Qingke", combat.CombatSideParty, 13, 16, 12),
+		combat.NewCombatant("scrap-1", "扭曲的拾荒者", combat.CombatSideEnemy, 22, 12, 10),
+	}, time.Now())
+	encounters := &fakePreloadEncounterReader{encounter: encounter}
 	memories := &fakePreloadSessionMemoryReader{memory: &model.SessionMemory{
 		CurrentObjective: "完成角色卡",
 	}}
@@ -48,6 +54,7 @@ func TestBuildPreloadedContextPromptLoadsRecentMessagesGameStateAndSessionMemory
 		ContextLimit:        0,
 		ContextProvider:     provider,
 		GameStateReader:     gameStates,
+		EncounterReader:     encounters,
 		SessionMemoryReader: memories,
 	})
 	if err != nil {
@@ -57,7 +64,7 @@ func TestBuildPreloadedContextPromptLoadsRecentMessagesGameStateAndSessionMemory
 	if provider.limit != defaultPreloadedContextLimit {
 		t.Fatalf("expected default context limit %d, got %d", defaultPreloadedContextLimit, provider.limit)
 	}
-	for _, expected := range []string{"创建人类战士", "角色创建草稿", "name=Qingke", "完成角色卡"} {
+	for _, expected := range []string{"创建人类战士", "角色创建草稿", "name=Qingke", "encounter_state", "当前行动单位=Qingke", "完成角色卡"} {
 		if !strings.Contains(result, expected) {
 			t.Fatalf("expected %q in preloaded context prompt, got %q", expected, result)
 		}
@@ -76,6 +83,7 @@ func TestBuildPreloadedContextPromptIgnoresMissingGameState(t *testing.T) {
 			},
 		},
 		GameStateReader:     &fakePreloadGameStateReader{err: repository.ErrGameStateNotFound},
+		EncounterReader:     &fakePreloadEncounterReader{err: repository.ErrEncounterNotFound},
 		SessionMemoryReader: &fakePreloadSessionMemoryReader{memory: &model.SessionMemory{}},
 	})
 	if err != nil {
@@ -104,6 +112,15 @@ type fakePreloadGameStateReader struct {
 
 func (f *fakePreloadGameStateReader) GetBySessionID(ctx context.Context, sessionID string) (*state.GameState, error) {
 	return f.state, f.err
+}
+
+type fakePreloadEncounterReader struct {
+	encounter *combat.Encounter
+	err       error
+}
+
+func (f *fakePreloadEncounterReader) GetBySessionID(ctx context.Context, sessionID string) (*combat.Encounter, error) {
+	return f.encounter, f.err
 }
 
 type fakePreloadSessionMemoryReader struct {

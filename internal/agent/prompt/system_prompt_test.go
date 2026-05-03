@@ -62,6 +62,18 @@ func TestDefaultSystemPromptRequiresCreateEncounterBeforeCombatTools(t *testing.
 	}
 }
 
+func TestDefaultSystemPromptAvoidsReaskingStandardCombatActionsWhenEncounterIsKnown(t *testing.T) {
+	for _, expected := range []string{
+		"标准攻击动作",
+		"不要重新追问",
+		"resolve_attack_action",
+	} {
+		if !strings.Contains(DefaultSystemPrompt, expected) {
+			t.Fatalf("expected prompt to mention %q for combat continuity, got %q", expected, DefaultSystemPrompt)
+		}
+	}
+}
+
 func TestDefaultSystemPromptForbidsInventingStateValueSources(t *testing.T) {
 	for _, expected := range []string{
 		"不要编造原因解释该数值",

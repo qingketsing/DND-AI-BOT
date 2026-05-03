@@ -6,6 +6,7 @@ import (
 
 	agentcontext "DND-AI-BOT/internal/agent/context"
 	agentprompt "DND-AI-BOT/internal/agent/prompt"
+	"DND-AI-BOT/internal/game/combat"
 	"DND-AI-BOT/internal/game/state"
 	"DND-AI-BOT/internal/model"
 	"DND-AI-BOT/internal/repository"
@@ -18,11 +19,16 @@ type preloadedContextInput struct {
 	ContextLimit        int
 	ContextProvider     agentcontext.Provider
 	GameStateReader     preloadedGameStateReader
+	EncounterReader     preloadedEncounterReader
 	SessionMemoryReader preloadedSessionMemoryReader
 }
 
 type preloadedGameStateReader interface {
 	GetBySessionID(ctx context.Context, sessionID string) (*state.GameState, error)
+}
+
+type preloadedEncounterReader interface {
+	GetBySessionID(ctx context.Context, sessionID string) (*combat.Encounter, error)
 }
 
 type preloadedSessionMemoryReader interface {
@@ -55,6 +61,17 @@ func buildPreloadedContextPrompt(ctx context.Context, input preloadedContextInpu
 		}
 	}
 
+	var encounter *combat.Encounter
+	if input.EncounterReader != nil {
+		result, err := input.EncounterReader.GetBySessionID(ctx, input.SessionID)
+		if err != nil && !errors.Is(err, repository.ErrEncounterNotFound) {
+			return "", err
+		}
+		if err == nil {
+			encounter = result
+		}
+	}
+
 	var memory *model.SessionMemory
 	if input.SessionMemoryReader != nil {
 		result, err := input.SessionMemoryReader.GetBySessionID(ctx, input.SessionID)
@@ -64,5 +81,5 @@ func buildPreloadedContextPrompt(ctx context.Context, input preloadedContextInpu
 		memory = result
 	}
 
-	return agentprompt.ComposePreloadedSessionContextPrompt(agentCtx, gameState, memory), nil
+	return agentprompt.ComposePreloadedSessionContextPrompt(agentCtx, gameState, encounter, memory), nil
 }

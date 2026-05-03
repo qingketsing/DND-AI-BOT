@@ -139,6 +139,7 @@ func NewApp(deps *bootstrap.RuntimeDependencies, options ...AppOption) (*App, er
 		KnowledgeWarmupService: knowledgeWarmupService,
 		ContextProvider:        contextProvider,
 		GameStateReader:        gameStateService,
+		EncounterReader:        encounterService,
 		SessionMemoryReader:    sessionMemoryService,
 		Metrics:                appOptions.Metrics,
 		Logger:                 appOptions.Logger,
@@ -149,6 +150,7 @@ func NewApp(deps *bootstrap.RuntimeDependencies, options ...AppOption) (*App, er
 		KnowledgeWarmupService: knowledgeWarmupService,
 		ContextProvider:        contextProvider,
 		GameStateReader:        gameStateService,
+		EncounterReader:        encounterService,
 		SessionMemoryReader:    sessionMemoryService,
 		Metrics:                appOptions.Metrics,
 		Logger:                 appOptions.Logger,
@@ -229,6 +231,7 @@ type appRuntimeRunnerInput struct {
 	KnowledgeWarmupService *service.KnowledgeWarmupService
 	ContextProvider        agentcontext.Provider
 	GameStateReader        preloadedGameStateReader
+	EncounterReader        preloadedEncounterReader
 	SessionMemoryReader    preloadedSessionMemoryReader
 	Metrics                *observability.Metrics
 	Logger                 *slog.Logger
@@ -267,6 +270,7 @@ func newRuntimeAgentRunner(input appRuntimeRunnerInput) service.AgentRunner {
 			ContextLimit:        replyInput.ContextLimit,
 			ContextProvider:     input.ContextProvider,
 			GameStateReader:     input.GameStateReader,
+			EncounterReader:     input.EncounterReader,
 			SessionMemoryReader: input.SessionMemoryReader,
 		})
 		breakdown.PreloadedContextBuild = time.Since(preloadedStartedAt)
