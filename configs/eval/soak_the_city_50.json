@@ -1,0 +1,34 @@
+{
+  "base_url": "${EVAL_BASE_URL}",
+  "session_id": "${EVAL_SESSION_ID}",
+  "user_token": "${EVAL_USER_TOKEN}",
+  "rounds": 50,
+  "scenario": {
+    "name": "the-city-50",
+    "objective": "Run a 50-round long-session DND test in the city setting and verify continuity, tool stability, combat progress, and response quality.",
+    "seed_prompt": "Start in the city: endless black, gray, and white concrete halls, static morning sun, two moons, slip doors, missing histories, and deep structural rumbling.",
+    "milestones": [
+      "Create or confirm a player character without repeatedly asking for already supplied fields.",
+      "Establish the current scene inside the city and preserve it across turns.",
+      "Trigger at least one exploration sequence and one combat or danger sequence.",
+      "Ask status and recall questions to verify memory and state consistency.",
+      "End with a coherent summary of known locations, NPCs, enemies, and pending goals."
+    ]
+  },
+  "player_model": {
+    "provider": "${EVAL_PLAYER_PROVIDER}",
+    "model": "${EVAL_PLAYER_MODEL}",
+    "api_key": "${EVAL_PLAYER_API_KEY}",
+    "base_url": "${EVAL_PLAYER_BASE_URL}",
+    "timeout_seconds": 60
+  },
+  "judge_model": {
+    "provider": "${EVAL_JUDGE_PROVIDER}",
+    "model": "${EVAL_JUDGE_MODEL}",
+    "api_key": "${EVAL_JUDGE_API_KEY}",
+    "base_url": "${EVAL_JUDGE_BASE_URL}",
+    "timeout_seconds": 60
+  },
+  "timeout_seconds": 3600,
+  "output_path": "reports/eval/soak_the_city_50.json"
+}
