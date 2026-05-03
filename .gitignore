@@ -1,6 +1,7 @@
 # Go 构建产物
 bin/
 dist/
+main
 *.exe
 *.exe~
 *.dll
@@ -11,6 +12,7 @@ dist/
 
 # Go 工作区与缓存
 .cache/
+.cache/go-build/
 coverage.out
 
 # Python 本地环境与缓存
@@ -27,7 +29,6 @@ __pycache__/
 # 本地环境变量文件
 .env
 .env.local
-TODO
 
 # 规则书提取与拆分生成物
 data/raw/Rules/*_extracted.txt
@@ -40,3 +41,6 @@ data/chunks/
 
 # 本地数据库备份
 backups/
+
+# 测试与评测产物
+reports/

@@ -1,0 +1,21 @@
+repository:
+  name: DND-AI-BOT
+  description: AI-native D&D DM backend with long-session memory, hybrid RAG, and structured game state.
+  homepage: https://github.com/qingketsing/DND_fe
+  private: false
+  has_issues: true
+  has_projects: true
+  has_wiki: false
+  default_branch: rewrite
+
+topics:
+  - golang
+  - agent
+  - rag
+  - pgvector
+  - postgresql
+  - redis
+  - docker
+  - dnd
+  - game-backend
+  - ai-backend
