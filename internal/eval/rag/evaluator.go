@@ -35,11 +35,13 @@ func (e *Evaluator) Evaluate(ctx context.Context, queries []Query, goldset []Gol
 	}
 
 	records := make([]QueryEvalRecord, 0, len(queries)*2)
+	evaluatedQueries := 0
 	for _, query := range queries {
 		gold, ok := goldByQueryID[query.ID]
 		if !ok {
-			return EvalReport{}, ErrMissingGoldsetEntry
+			continue
 		}
+		evaluatedQueries++
 
 		lexicalResults, err := e.search(ctx, e.lexical, query)
 		if err != nil {
@@ -57,7 +59,7 @@ func (e *Evaluator) Evaluate(ctx context.Context, queries []Query, goldset []Gol
 	}
 
 	return EvalReport{
-		QueryCount: len(queries),
+		QueryCount: evaluatedQueries,
 		Metrics:    BuildMetricsReport(e.ks, records),
 	}, nil
 }

@@ -31,11 +31,12 @@ type DraftGoldsetEntry struct {
 
 // GoldsetEntry stores a human-approved relevance set for one query.
 type GoldsetEntry struct {
-	QueryID          string   `json:"query_id"`
-	KnowledgeBase    string   `json:"knowledge_base"`
-	RelevantChunkIDs []string `json:"relevant_chunk_ids"`
-	ReviewStatus     string   `json:"review_status"`
-	Notes            string   `json:"notes,omitempty"`
+	QueryID                   string   `json:"query_id"`
+	KnowledgeBase             string   `json:"knowledge_base"`
+	RelevantChunkIDs          []string `json:"relevant_chunk_ids"`
+	PredictedRelevantChunkIDs []string `json:"predicted_relevant_chunk_ids,omitempty"`
+	ReviewStatus              string   `json:"review_status"`
+	Notes                     string   `json:"notes,omitempty"`
 }
 
 // QueryEvalRecord stores one query/backend retrieval evaluation result.

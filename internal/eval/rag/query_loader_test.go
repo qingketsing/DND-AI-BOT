@@ -60,6 +60,23 @@ func TestLoadGoldsetRejectsMissingRelevantChunkIDs(t *testing.T) {
 	}
 }
 
+func TestLoadGoldsetFallsBackToPredictedRelevantChunkIDs(t *testing.T) {
+	path := writeTempFile(t, "goldset.jsonl", ""+
+		"{\"query_id\":\"rules-1\",\"knowledge_base\":\"rules\",\"predicted_relevant_chunk_ids\":[\"rules-101\"],\"review_status\":\"approved\"}\n",
+	)
+
+	entries, err := LoadGoldset(path)
+	if err != nil {
+		t.Fatalf("expected goldset to load with predicted fallback, got %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected one entry, got %d", len(entries))
+	}
+	if len(entries[0].RelevantChunkIDs) != 1 || entries[0].RelevantChunkIDs[0] != "rules-101" {
+		t.Fatalf("unexpected fallback relevant chunk ids: %+v", entries[0].RelevantChunkIDs)
+	}
+}
+
 func writeTempFile(t *testing.T, name string, content string) string {
 	t.Helper()
 	dir := t.TempDir()

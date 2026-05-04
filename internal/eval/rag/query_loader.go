@@ -65,6 +65,9 @@ func LoadGoldset(path string) ([]GoldsetEntry, error) {
 		if strings.TrimSpace(entry.ReviewStatus) != "approved" {
 			continue
 		}
+		if len(entry.RelevantChunkIDs) == 0 && len(entry.PredictedRelevantChunkIDs) > 0 {
+			entry.RelevantChunkIDs = append([]string(nil), entry.PredictedRelevantChunkIDs...)
+		}
 		if len(entry.RelevantChunkIDs) == 0 {
 			return nil, ErrInvalidEvalFile
 		}

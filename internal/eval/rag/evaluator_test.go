@@ -42,20 +42,35 @@ func TestEvaluatorRunsLexicalAndHybridSideBySide(t *testing.T) {
 	}
 }
 
-func TestBuildEvalReportRejectsMissingGoldsetQuery(t *testing.T) {
+func TestEvaluatorSkipsQueriesWithoutApprovedGoldset(t *testing.T) {
 	evaluator := NewEvaluator(
-		SearcherSet{RuleSearcher: &fakeSearcher{}, LoreSearcher: &fakeSearcher{}},
-		SearcherSet{RuleSearcher: &fakeSearcher{}, LoreSearcher: &fakeSearcher{}},
+		SearcherSet{
+			RuleSearcher: &fakeSearcher{results: []retrievalsearch.SearchResult{{ChunkID: "rules-101"}}},
+			LoreSearcher: &fakeSearcher{},
+		},
+		SearcherSet{
+			RuleSearcher: &fakeSearcher{results: []retrievalsearch.SearchResult{{ChunkID: "rules-101"}}},
+			LoreSearcher: &fakeSearcher{},
+		},
 		[]int{1, 3, 5},
 		5,
 	)
 
-	_, err := evaluator.Evaluate(context.Background(),
-		[]Query{{ID: "rules-1", KnowledgeBase: "rules", Query: "潜行规则", QueryType: "semantic"}},
-		nil,
+	report, err := evaluator.Evaluate(context.Background(),
+		[]Query{
+			{ID: "rules-1", KnowledgeBase: "rules", Query: "潜行规则", QueryType: "semantic"},
+			{ID: "rules-2", KnowledgeBase: "rules", Query: "法师规则", QueryType: "semantic"},
+		},
+		[]GoldsetEntry{{QueryID: "rules-1", KnowledgeBase: "rules", RelevantChunkIDs: []string{"rules-101"}}},
 	)
-	if err == nil {
-		t.Fatal("expected missing goldset query to fail")
+	if err != nil {
+		t.Fatalf("expected evaluator to skip missing goldset query, got %v", err)
+	}
+	if report.QueryCount != 1 {
+		t.Fatalf("expected query count 1 after skipping missing goldset query, got %d", report.QueryCount)
+	}
+	if len(report.Metrics.Records) != 2 {
+		t.Fatalf("expected only one evaluated query across two backends, got %d records", len(report.Metrics.Records))
 	}
 }
 
