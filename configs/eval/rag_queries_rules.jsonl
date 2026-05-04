@@ -1,0 +1,25 @@
+{"id":"rules-001","knowledge_base":"rules","query":"创建角色时第一步要做什么","query_type":"semantic","difficulty":"easy"}
+{"id":"rules-002","knowledge_base":"rules","query":"角色卡是用来做什么的","query_type":"semantic","difficulty":"easy"}
+{"id":"rules-003","knowledge_base":"rules","query":"创建角色时如何选择种族","query_type":"semantic","difficulty":"easy"}
+{"id":"rules-004","knowledge_base":"rules","query":"DND 里有哪些常见种族","query_type":"alias","difficulty":"easy"}
+{"id":"rules-005","knowledge_base":"rules","query":"如何选择职业","query_type":"semantic","difficulty":"easy"}
+{"id":"rules-006","knowledge_base":"rules","query":"1级角色的熟练加值是多少","query_type":"exact_name","difficulty":"easy"}
+{"id":"rules-007","knowledge_base":"rules","query":"生命值和生命骰怎么计算","query_type":"multi_chunk","difficulty":"medium"}
+{"id":"rules-008","knowledge_base":"rules","query":"标准数组有哪些数值","query_type":"exact_name","difficulty":"easy"}
+{"id":"rules-009","knowledge_base":"rules","query":"27 点购点法是什么","query_type":"alias","difficulty":"medium"}
+{"id":"rules-010","knowledge_base":"rules","query":"属性值调整值表怎么看","query_type":"exact_name","difficulty":"medium"}
+{"id":"rules-011","knowledge_base":"rules","query":"力量属性主要衡量什么","query_type":"semantic","difficulty":"easy"}
+{"id":"rules-012","knowledge_base":"rules","query":"敏捷属性影响什么能力","query_type":"semantic","difficulty":"easy"}
+{"id":"rules-013","knowledge_base":"rules","query":"体质属性为什么对所有职业都重要","query_type":"semantic","difficulty":"medium"}
+{"id":"rules-014","knowledge_base":"rules","query":"智力属性最适合法师吗","query_type":"alias","difficulty":"easy"}
+{"id":"rules-015","knowledge_base":"rules","query":"感知属性主要代表什么","query_type":"semantic","difficulty":"easy"}
+{"id":"rules-016","knowledge_base":"rules","query":"魅力属性和哪些职业最相关","query_type":"multi_chunk","difficulty":"medium"}
+{"id":"rules-017","knowledge_base":"rules","query":"高等精灵适合法师吗","query_type":"alias","difficulty":"medium"}
+{"id":"rules-018","knowledge_base":"rules","query":"山地矮人的属性加成是什么","query_type":"exact_name","difficulty":"medium"}
+{"id":"rules-019","knowledge_base":"rules","query":"战士的职业特性在哪里看","query_type":"exact_name","difficulty":"easy"}
+{"id":"rules-020","knowledge_base":"rules","query":"法师这个职业有什么特点","query_type":"semantic","difficulty":"medium"}
+{"id":"rules-021","knowledge_base":"rules","query":"战斗章节主要讲什么","query_type":"exact_name","difficulty":"easy"}
+{"id":"rules-022","knowledge_base":"rules","query":"施法章节和法术章节有什么区别","query_type":"multi_chunk","difficulty":"hard"}
+{"id":"rules-023","knowledge_base":"rules","query":"装备章节会告诉我起始装备吗","query_type":"semantic","difficulty":"easy"}
+{"id":"rules-024","knowledge_base":"rules","query":"个性与背景章节是做什么的","query_type":"semantic","difficulty":"easy"}
+{"id":"rules-025","knowledge_base":"rules","query":"冒险章节和战斗章节分别包含什么","query_type":"multi_chunk","difficulty":"hard"}

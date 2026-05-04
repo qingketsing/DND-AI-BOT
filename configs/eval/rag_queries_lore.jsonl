@@ -1,0 +1,25 @@
+{"id":"lore-001","knowledge_base":"lore","query":"the city 里的古老巨兽是什么","query_type":"semantic","difficulty":"medium"}
+{"id":"lore-002","knowledge_base":"lore","query":"之下 是什么地方","query_type":"exact_name","difficulty":"easy"}
+{"id":"lore-003","knowledge_base":"lore","query":"游牧民族在这个世界里是怎样的","query_type":"alias","difficulty":"medium"}
+{"id":"lore-004","knowledge_base":"lore","query":"死寂的世界 指的是什么设定","query_type":"exact_name","difficulty":"easy"}
+{"id":"lore-005","knowledge_base":"lore","query":"空旷的大厅 有什么特征","query_type":"semantic","difficulty":"easy"}
+{"id":"lore-006","knowledge_base":"lore","query":"凝固的天空 为什么被这样描述","query_type":"semantic","difficulty":"medium"}
+{"id":"lore-007","knowledge_base":"lore","query":"通往城市的门 是什么","query_type":"exact_name","difficulty":"easy"}
+{"id":"lore-008","knowledge_base":"lore","query":"无光之厅 是什么地方","query_type":"exact_name","difficulty":"easy"}
+{"id":"lore-009","knowledge_base":"lore","query":"无光之生 是怎样的生活方式","query_type":"semantic","difficulty":"medium"}
+{"id":"lore-010","knowledge_base":"lore","query":"这个世界是不是完全死了","query_type":"alias","difficulty":"medium"}
+{"id":"lore-011","knowledge_base":"lore","query":"轨道 在设定里意味着什么","query_type":"semantic","difficulty":"medium"}
+{"id":"lore-012","knowledge_base":"lore","query":"车站 在 the city 设定里是什么样的","query_type":"semantic","difficulty":"medium"}
+{"id":"lore-013","knowledge_base":"lore","query":"迷失与需要帮助者 指的是哪些人","query_type":"semantic","difficulty":"medium"}
+{"id":"lore-014","knowledge_base":"lore","query":"暮光大厅 有什么氛围","query_type":"exact_name","difficulty":"easy"}
+{"id":"lore-015","knowledge_base":"lore","query":"地下的世界 和地表有什么关系","query_type":"multi_chunk","difficulty":"hard"}
+{"id":"lore-016","knowledge_base":"lore","query":"无光社会 是怎么运转的","query_type":"semantic","difficulty":"medium"}
+{"id":"lore-017","knowledge_base":"lore","query":"游牧社群 靠什么生存","query_type":"semantic","difficulty":"medium"}
+{"id":"lore-018","knowledge_base":"lore","query":"被遗忘之海 是什么地方","query_type":"exact_name","difficulty":"easy"}
+{"id":"lore-019","knowledge_base":"lore","query":"the city 的滑门 是做什么的","query_type":"alias","difficulty":"easy"}
+{"id":"lore-020","knowledge_base":"lore","query":"为什么说这里并非完全死寂","query_type":"semantic","difficulty":"medium"}
+{"id":"lore-021","knowledge_base":"lore","query":"无光世界里的居民从哪里获得光源","query_type":"semantic","difficulty":"medium"}
+{"id":"lore-022","knowledge_base":"lore","query":"永恒的上午和双月天空是怎样的设定","query_type":"multi_chunk","difficulty":"hard"}
+{"id":"lore-023","knowledge_base":"lore","query":"the city 的大厅和走廊有什么共同特征","query_type":"semantic","difficulty":"medium"}
+{"id":"lore-024","knowledge_base":"lore","query":"裂隙和深坑在城市里意味着什么危险","query_type":"semantic","difficulty":"medium"}
+{"id":"lore-025","knowledge_base":"lore","query":"无光社会 和 无光之生 之间有什么联系","query_type":"multi_chunk","difficulty":"hard"}
