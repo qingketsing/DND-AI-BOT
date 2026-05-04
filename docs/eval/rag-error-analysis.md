@@ -1,42 +1,45 @@
-# RAG Error Analysis
+# RAG 检索误差分析
 
-Date: 2026-05-04
+日期：2026-05-04
 
-Source reports:
+数据来源：
 - [reports/eval/rag_eval_report.json](/home/qingke/DND-AI-BOT/reports/eval/rag_eval_report.json)
 - [reports/eval/rag_eval_report.md](/home/qingke/DND-AI-BOT/reports/eval/rag_eval_report.md)
 
-## Scope
+## 分析范围
 
-This analysis uses the current approved benchmark subset:
+本次分析使用当前已经人工确认的 benchmark 子集：
 
-- total queries: 46
-- rules: 21
-- lore: 25
+- query 总数：46
+- rules：21
+- lore：25
 
-The goal is not to restate Recall@K, but to identify why `lexical` underperforms and what still limits `hybrid`.
+目标不是重复罗列 Recall@K 数字，而是回答两件事：
 
-## Summary
+1. 为什么 `lexical` 表现明显偏差
+2. `hybrid` 还剩下哪些真实瓶颈
 
-### Overall
+## 结果概览
 
-| backend | MRR | Recall@1 | Recall@3 | Recall@5 | Recall@10 |
+### 总体结果
+
+| 检索后端 | MRR | Recall@1 | Recall@3 | Recall@5 | Recall@10 |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | hybrid | 0.8826 | 0.6178 | 0.8098 | 0.9094 | 0.9783 |
 | lexical | 0.3696 | 0.3116 | 0.3587 | 0.3587 | 0.3587 |
 
-### By knowledge base
+### 按知识库划分
 
-| KB | backend | MRR | Recall@1 | Recall@10 |
+| 知识库 | 检索后端 | MRR | Recall@1 | Recall@10 |
 | --- | --- | ---: | ---: | ---: |
 | rules | hybrid | 0.7429 | 0.4167 | 0.9524 |
 | rules | lexical | 0.0476 | 0.0476 | 0.0476 |
 | lore | hybrid | 1.0000 | 0.7867 | 1.0000 |
 | lore | lexical | 0.6400 | 0.5333 | 0.6200 |
 
-### By query type
+### 按 query 类型划分
 
-| type | backend | Recall@1 | Recall@10 | MRR |
+| query 类型 | 检索后端 | Recall@1 | Recall@10 | MRR |
 | --- | --- | ---: | ---: | ---: |
 | exact_name | hybrid | 0.8500 | 1.0000 | 1.0000 |
 | exact_name | lexical | 0.6000 | 0.6000 | 0.6000 |
@@ -47,44 +50,57 @@ The goal is not to restate Recall@K, but to identify why `lexical` underperforms
 | multi_chunk | hybrid | 0.4028 | 1.0000 | 0.9167 |
 | multi_chunk | lexical | 0.1389 | 0.2500 | 0.3333 |
 
-## Main findings
+## 主要结论
 
-### 1. Lexical is not mainly a ranking problem. It is a recall failure.
+### 1. lexical 的核心问题不是排序，而是召回失败
 
-The strongest signal is that `lexical` barely improves after top 3:
+最明显的信号是：
 
 - Recall@3 = 0.3587
 - Recall@5 = 0.3587
 - Recall@10 = 0.3587
 
-This means most failures are not "correct chunk exists but ranks low". The correct chunk is usually not in top 10 at all.
+这说明 `lexical` 的问题不是“正确 chunk 召回到了，但是排得太后面”。
+更真实的情况是：
 
-### 2. Lexical is effectively broken on the rules KB.
+- 大量 query 在 top10 里根本没有正确 chunk
 
-Observed breakdown:
+如果只是排序不佳，通常会看到：
 
-- `lexical + rules`: 21 queries
-  - empty result set: 20
-  - hit: 1
-  - non-empty miss: 0
+- Recall@1 较低
+- 但 Recall@3 / @5 / @10 会持续上升
 
-- `lexical + lore`: 25 queries
-  - empty result set: 8
-  - hit: 16
-  - non-empty miss: 1
+当前结果不是这个形态。
 
-Interpretation:
+### 2. lexical 在 rules 知识库上几乎不可用
 
-- On `rules`, the current lexical pipeline almost never returns anything useful.
-- On `lore`, lexical still has partial value, especially for exact names and direct setting nouns.
+具体拆分如下：
 
-This is not just "hybrid is better". It suggests the current lexical indexing or tokenization path is mismatched with Chinese natural-language rules queries.
+- `lexical + rules`：21 条 query
+  - 空结果：20
+  - 命中：1
+  - 有结果但 miss：0
 
-### 3. Hybrid solves recall, but not always top-1 ranking.
+- `lexical + lore`：25 条 query
+  - 空结果：8
+  - 命中：16
+  - 有结果但 miss：1
 
-Representative cases where `hybrid` hits but does not place the first relevant chunk at rank 1:
+这说明问题不只是“hybrid 更强”，而是：
 
-| query_id | query | rank of first hit |
+- 在 `rules` 上，当前 lexical 基本拿不到可用结果
+- 在 `lore` 上，lexical 仍然保留部分价值，尤其是专有名词和直接设定名词查询
+
+因此后续不能再把 `rules` 和 `lore` 当成同一种检索问题处理。
+
+### 3. hybrid 已经解决召回问题，但 top1 排序仍然不稳定
+
+以下 query 都属于：
+
+- `hybrid` 能命中
+- 但第一个相关 chunk 不在 rank1
+
+| query_id | query | 第一个命中位置 |
 | --- | --- | ---: |
 | rules-001 | 创建角色时第一步要做什么 | 5 |
 | rules-012 | 敏捷属性影响什么能力 | 5 |
@@ -93,166 +109,191 @@ Representative cases where `hybrid` hits but does not place the first relevant c
 | rules-020 | 法师这个职业有什么特点 | 5 |
 | rules-024 | 个性与背景章节是做什么的 | 3 |
 
-Pattern:
+这类 query 的共同特征是：
 
-- chapter-summary queries
-- attribute-to-capability mapping queries
-- "compatibility" or "适合/相关" phrasing
+- 章节概括型问题
+- 属性到能力映射的问题
+- “适合 / 相关 / 区别 / 主要讲什么” 这类解释型表述
 
-These are usually answered by a semantically correct chunk, but the top result is often a nearby context chunk, a sibling section, or a generic surrounding block.
+它们通常不是简单找一个精确术语，而是要在一组邻近 chunk 里找“最能回答问题的那块”。
+所以现在 hybrid 的主要问题已经从“能不能召回”变成“能不能排第一”。
 
-### 4. Hybrid still misses one alias-heavy rules query.
+### 4. hybrid 仍然 miss 了一条 alias 较重的规则 query
 
-Current `hybrid` rules miss:
+当前 `hybrid` 在 rules 上唯一一条 miss：
 
-- `rules-009`: `27 点购点法是什么`
+- `rules-009`：`27 点购点法是什么`
 
-Expected relevant chunk:
+目标 chunk：
 
 - `rules:phb:chapter:01-character-creation:0017`
 
-Observed top 10 retrieval does not include the target chunk.
+但 hybrid 的 top10 没有召回这条。
 
-Interpretation:
+这说明这里更像是：
 
-- This is likely an alias / terminology normalization problem.
-- The query uses a numeric colloquial form (`27 点购点法`), while the source chunk is likely phrased as a formal rule name or descriptive paragraph.
+- alias / 同义表达归一化问题
 
-## Representative error cases
+用户写法是：
 
-### Lexical miss, hybrid hit
+- `27 点购点法`
 
-These are the most useful examples for future debugging.
+而正文更可能写成：
 
-1. `rules-001` `创建角色时第一步要做什么`
-   - lexical: no result
-   - hybrid: hit at rank 5
-   - issue class: chapter-step semantic query
+- 正式规则名称
+- 或一段描述性说明
 
-2. `rules-012` `敏捷属性影响什么能力`
-   - lexical: no result
-   - hybrid: hit at rank 5
-   - issue class: attribute semantics spread across multiple rules chunks
+这类 query 靠现有检索直接命中并不稳定。
 
-3. `rules-017` `高等精灵适合法师吗`
-   - lexical: no result
-   - hybrid: hit at rank 6
-   - issue class: compatibility phrasing does not lexically match source wording
+## 代表性误差样本
 
-4. `lore-019` `滑门是做什么的`
-   - lexical: retrieved unrelated `无光社会:0003`
-   - hybrid: exact hit at rank 1 via `gates-to-the-city:0001`
-   - issue class: alias / translated term mismatch
+### lexical miss，hybrid hit
 
-5. `lore-023` `大厅和走廊有什么共同特征`
-   - lexical: no result
-   - hybrid: both relevant chunks at top ranks
-   - issue class: summary query over multiple setting fragments
+这些样本最值得后续拿来做针对性调优。
 
-## Likely root causes
+1. `rules-001`：`创建角色时第一步要做什么`
+   - lexical：空结果
+   - hybrid：rank 5 命中
+   - 问题类型：章节步骤型语义查询
 
-### A. Chinese lexical retrieval is under-tokenized or weakly matched for rules queries
+2. `rules-012`：`敏捷属性影响什么能力`
+   - lexical：空结果
+   - hybrid：rank 5 命中
+   - 问题类型：属性含义分散在多个规则块中
 
-The `rules` failures are too extreme to explain by ordinary ranking noise. The current lexical backend likely has one or more of these problems:
+3. `rules-017`：`高等精灵适合法师吗`
+   - lexical：空结果
+   - hybrid：rank 6 命中
+   - 问题类型：用户问法是“适合性判断”，正文并不一定包含“适合”这个词
 
-- poor Chinese token segmentation for long PHB chunks
-- low overlap between user phrasing and chunk wording
-- weak title / heading matching
-- no synonym or alias normalization
+4. `lore-019`：`滑门是做什么的`
+   - lexical：错误召回 `无光社会:0003`
+   - hybrid：rank 1 直接命中 `gates-to-the-city:0001`
+   - 问题类型：译名 / 别名不稳定
 
-### B. Query wording is often semantic, not literal
+5. `lore-023`：`大厅和走廊有什么共同特征`
+   - lexical：空结果
+   - hybrid：两个相关 chunk 都在前列
+   - 问题类型：跨 chunk 的设定概括问题
 
-Examples:
+## 可能的根因
+
+### A. rules 知识库的 lexical 路径对中文检索不友好
+
+`rules` 上的失败太极端，不太可能只是普通排序波动。
+当前 lexical 路径很可能存在以下一个或多个问题：
+
+- 中文分词对长规则正文不友好
+- 用户问法和正文用词重叠度低
+- 标题 / 节标题没有被单独强化
+- 没有别名和术语归一化
+
+### B. 很多 query 本质上是语义问题，不是字面匹配问题
+
+典型例子：
 
 - `适合法师吗`
 - `主要讲什么`
 - `有什么区别`
 - `和哪些职业最相关`
 
-These questions ask for interpretation or summarization. Dense retrieval handles them much better than literal keyword matching.
+这类 query 需要的是解释、归纳、映射，而不是简单关键词重合。
+这也是为什么 dense retrieval 明显优于 lexical。
 
-### C. Numeric and colloquial aliases are not normalized
+### C. 数字型 alias 和口语化表述没有归一化
 
-Example:
+例如：
 
 - `27 点购点法`
 
-This likely needs a rewrite or synonym map to hit the formal chunk language reliably.
+如果不把这类 query 改写到更接近正文的表述上，单纯依赖 embedding 或 FTS 都会有不稳定性。
 
-### D. Hybrid ranking still lacks a last-mile rerank signal
+### D. hybrid 缺少最后一层轻量 rerank
 
-Hybrid already finds the right neighborhood. The remaining issue is that the best chunk is not always rank 1. This points to:
+现在 hybrid 已经能把正确 chunk 找到附近，但还不一定放到第一位。
+这通常说明：
 
-- insufficient title weighting
-- no section-heading boost
-- no lightweight rerank step
+- title 权重不够
+- heading 权重不够
+- 没有 query type 感知的融合权重
+- 没有一个轻量的最后排序阶段
 
-## Recommended next steps
+## 后续优化建议
 
-### Priority 1. Inspect lexical indexing for the rules KB
+### 优先级 1：先检查 rules 知识库的 lexical 建索引方式
 
-Do not start with prompt tricks. First verify the retrieval substrate.
+不要一上来就做 prompt 或模型层补丁。
+先确认底层检索路径是否正常。
 
-Check:
+重点检查：
 
-- how `rules` chunks are tokenized for FTS
-- whether titles/headings are indexed separately
-- whether Chinese queries are being normalized before lexical search
-- whether the rules KB and lore KB share the same lexical strategy even though their query distributions differ
+- `rules` chunk 在 FTS 中是如何被分词的
+- 标题 / 节标题是否单独建索引
+- 中文 query 是否做了规范化处理
+- `rules` 和 `lore` 是否错误地共用了一套 lexical 策略
 
-Expected outcome:
+预期目标：
 
-- confirm whether the rules lexical path is fundamentally broken or just poorly tuned
+- 判断当前 `rules lexical` 是“完全坏掉”还是“只是参数没调好”
 
-### Priority 2. Add a small query rewrite / alias normalization layer before retrieval
+### 优先级 2：补一层轻量 query rewrite / alias normalization
 
-Especially for:
+优先处理以下模式：
 
-- numeric aliases: `27 点购点法`
-- compatibility phrasing: `适合法师吗`
-- chapter-summary phrasing: `主要讲什么`, `有什么区别`
+- 数字型 alias：`27 点购点法`
+- 适配型表述：`适合法师吗`
+- 章节概括型表述：`主要讲什么`
+- 对比型表述：`有什么区别`
 
-This does not need to be a full LLM rewrite first. A deterministic rewrite table for high-frequency benchmark patterns is enough to validate the gain.
+第一阶段不需要 LLM rewrite。
+先做确定性的 rewrite 词表就够了，用来验证收益。
 
-### Priority 3. Add title / heading boost or lightweight rerank for hybrid top 10
+### 优先级 3：提升 hybrid 的 top1 排序质量
 
-Target:
+目标不是继续提高 Recall@10，而是提高：
 
-- improve `hybrid` top-1 precision
-- keep current strong recall
+- Recall@1
+- MRR
 
-The best first step is not a heavy reranker model. Start with:
+建议先做轻量方案：
 
 - title boost
 - heading boost
-- query-type-aware weight tuning for `rules`
+- 对 `rules` 的 query-type-aware 融合权重
 
-### Priority 4. Separate retrieval tuning for `rules` and `lore`
+不建议第一步就上重 reranker。
 
-Current evidence says they behave very differently:
+### 优先级 4：分开调优 rules 和 lore
 
-- `lore` still gives lexical some value
-- `rules` does not
+当前证据已经足够说明：
 
-Treating them as the same retrieval problem is leaving performance on the table.
+- `lore` 上 lexical 仍然有一定价值
+- `rules` 上 lexical 基本失效
 
-## Actionable follow-up tasks
+因此：
 
-1. Build a `lexical miss / hybrid hit` export command for top failed queries.
-2. Add benchmark-time query rewrite hooks for a controlled A/B test.
-3. Re-run Recall@K after:
-   - lexical tuning
+- `rules` 应更偏向语义检索
+- `lore` 可以继续保留 lexical 的辅助作用
+
+统一策略会浪费两边的最优空间。
+
+## 可执行的后续任务
+
+1. 做一个 `lexical miss / hybrid hit` 的样本导出脚本
+2. 给 benchmark 增加 query rewrite 钩子，做小范围 A/B
+3. 在不改 goldset 的前提下分别测试：
+   - lexical 调优
    - alias normalization
-   - hybrid weighting adjustment
-4. Keep the same goldset and compare only one retrieval variable at a time.
+   - hybrid 权重调整
+4. 每次只改一个变量，再重新跑 Recall@K
 
-## Bottom line
+## 最终结论
 
-The current benchmark already supports a strong engineering conclusion:
+这轮 benchmark 已经足以支持一个明确判断：
 
-- `hybrid` is the correct default backend for this project.
-- `lexical` still has limited value on `lore exact-name` queries.
-- the next bottleneck is no longer recall; it is:
-  - lexical rules indexing quality
-  - alias normalization
-  - hybrid top-1 ranking quality
+- `hybrid` 应该是当前项目的默认检索后端
+- `lexical` 只在 `lore exact-name` 类问题上保留有限价值
+- 当前下一阶段的主要瓶颈已经不是“能不能召回”，而是：
+  - `rules` 的 lexical 建索引质量
+  - alias / 术语归一化
+  - hybrid 的 top1 排序质量
