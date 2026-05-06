@@ -56,6 +56,20 @@ func TestNewAppBuildsCoreServices(t *testing.T) {
 	}
 }
 
+func TestNewAppRejectsAsyncMessageModeWithoutPersistentDependencies(t *testing.T) {
+	t.Setenv("MODEL_PROVIDER", "mock")
+	t.Setenv("MODEL_NAME", "")
+	t.Setenv("MODEL_API_KEY", "")
+	t.Setenv("MODEL_BASE_URL", "")
+	t.Setenv("MODEL_TIMEOUT_SECONDS", "")
+	t.Setenv("ASYNC_MESSAGE_ENABLED", "true")
+
+	_, err := NewApp(&bootstrap.RuntimeDependencies{})
+	if err == nil {
+		t.Fatal("expected async message mode without db and redis to fail")
+	}
+}
+
 func TestNewAppProtectsAuthMeRoute(t *testing.T) {
 	t.Setenv("MODEL_PROVIDER", "mock")
 	t.Setenv("MODEL_NAME", "")

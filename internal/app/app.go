@@ -27,12 +27,14 @@ import (
 	httpHandler "DND-AI-BOT/internal/transport/http/handler"
 	httpMiddleware "DND-AI-BOT/internal/transport/http/middleware"
 	"DND-AI-BOT/internal/transport/http/router"
+	"DND-AI-BOT/internal/worker"
 )
 
 // App 负责承载应用初始化后的根 HTTP handler。
 type App struct {
 	Handler                http.Handler
 	AgentService           *service.AgentService
+	AsyncMessageService    *service.AsyncMessageService
 	AuthService            *service.AuthService
 	SessionService         *service.SessionService
 	GameStateService       *service.GameStateService
@@ -78,6 +80,7 @@ func NewApp(deps *bootstrap.RuntimeDependencies, options ...AppOption) (*App, er
 
 	securityConfig := bootstrap.LoadSecurityConfigFromEnv()
 	agentObservabilityConfig := bootstrap.LoadAgentObservabilityConfigFromEnv()
+	asyncMessageConfig := bootstrap.LoadAsyncMessageConfigFromEnv()
 	agentLatencyLogConfig := toAppAgentLatencyBreakdownLogConfig(agentObservabilityConfig.LatencyBreakdownLogConfig)
 	sessionRepository := buildSessionRepository(deps)
 	gameStateRepository := buildGameStateRepository(deps)
@@ -176,6 +179,27 @@ func NewApp(deps *bootstrap.RuntimeDependencies, options ...AppOption) (*App, er
 		service.SystemClock{},
 	)
 	sessionService := service.NewSessionService(sessionRepository, agentService)
+	var asyncMessageService *service.AsyncMessageService
+	if asyncMessageConfig.Enabled {
+		if deps == nil || deps.DB == nil || deps.RedisClient == nil {
+			return nil, bootstrap.ErrMissingAsyncMessageDependencies
+		}
+		messageJobRepository := postgresstore.NewPGMessageJobStore(deps.DB)
+		sessionLock := worker.NewRedisSessionLock(deps.RedisClient)
+		processor := worker.NewMessageJobProcessor(
+			sessionRepository,
+			messageJobRepository,
+			sessionLock,
+			agentService,
+		)
+		publisher := newInProcessAsyncMessagePublisher(
+			processor,
+			asyncMessageConfig.WorkerCount,
+			asyncMessageConfig.QueueBuffer,
+			asyncMessageConfig.RetryDelay,
+		)
+		asyncMessageService = service.NewAsyncMessageService(sessionRepository, messageJobRepository, publisher)
+	}
 	sessionService.SetMemoryRefresher(sessionMemoryRefresher)
 	sessionDeleteCleaners := make([]service.SessionDeleteCleaner, 0, 3)
 	if cleaner, ok := gameStateRepository.(service.SessionDeleteCleaner); ok {
@@ -195,7 +219,13 @@ func NewApp(deps *bootstrap.RuntimeDependencies, options ...AppOption) (*App, er
 		httpHandler.WithCookieConfig(toHandlerCookieConfig(securityConfig.Cookie)),
 	)
 	authMiddleware := httpMiddleware.NewAuthMiddleware(authService)
-	sessionHandler := httpHandler.NewSessionHandler(sessionService, httpHandler.WithSessionRateLimiter(rateLimitService))
+	sessionHandlerOptions := []httpHandler.SessionHandlerOption{
+		httpHandler.WithSessionRateLimiter(rateLimitService),
+	}
+	if asyncMessageService != nil {
+		sessionHandlerOptions = append(sessionHandlerOptions, httpHandler.WithAsyncMessageService(asyncMessageService))
+	}
+	sessionHandler := httpHandler.NewSessionHandler(sessionService, sessionHandlerOptions...)
 	gameStateHandler := httpHandler.NewGameStateHandler(gameStateService)
 	encounterHandler := httpHandler.NewEncounterHandler(encounterService)
 	metricsHandler := httpMiddleware.NewMetricsAccessMiddleware(toMiddlewareMetricsAccessConfig(securityConfig.Metrics))(appOptions.Metrics.Handler())
@@ -216,6 +246,7 @@ func NewApp(deps *bootstrap.RuntimeDependencies, options ...AppOption) (*App, er
 			),
 		),
 		AgentService:           agentService,
+		AsyncMessageService:    asyncMessageService,
 		AuthService:            authService,
 		SessionService:         sessionService,
 		GameStateService:       gameStateService,
