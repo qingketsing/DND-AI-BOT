@@ -8,6 +8,7 @@ var (
 	ErrEncounterNotFound   = errors.New("encounter not found")
 	ErrUserNotFound        = errors.New("user not found")
 	ErrAuthSessionNotFound = errors.New("auth session not found")
+	ErrMessageJobNotFound  = errors.New("message job not found")
 
 	ErrCacheMiss           = errors.New("cache miss")
 	ErrCacheNotFoundMarker = errors.New("cache not found marker")

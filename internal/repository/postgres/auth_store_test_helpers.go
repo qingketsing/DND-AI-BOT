@@ -27,6 +27,7 @@ type fakePGState struct {
 	tokens       map[string]string
 	gameSessions map[string]model.Session
 	memories     map[string]model.SessionMemory
+	messageJobs  map[string]model.MessageJob
 	indexMeta    map[string]fakeKnowledgeIndexMetadata
 	knowledge    map[string]fakeKnowledgeChunk
 }
@@ -60,6 +61,7 @@ func newFakePGState() *fakePGState {
 		tokens:       make(map[string]string),
 		gameSessions: make(map[string]model.Session),
 		memories:     make(map[string]model.SessionMemory),
+		messageJobs:  make(map[string]model.MessageJob),
 		indexMeta:    make(map[string]fakeKnowledgeIndexMetadata),
 		knowledge:    make(map[string]fakeKnowledgeChunk),
 	}
@@ -203,6 +205,33 @@ func (c *fakePGConn) ExecContext(ctx context.Context, query string, args []drive
 		}
 		c.state.memories[memory.SessionID] = memory
 		return driver.RowsAffected(1), nil
+	case strings.Contains(query, "INSERT INTO message_jobs"):
+		job := model.MessageJob{
+			ID:               args[0].Value.(string),
+			MessageID:        args[1].Value.(string),
+			SessionID:        args[2].Value.(string),
+			UserID:           args[3].Value.(string),
+			Status:           model.MessageJobStatus(args[4].Value.(string)),
+			AttemptCount:     int(args[5].Value.(int64)),
+			MaxAttempts:      int(args[6].Value.(int64)),
+			WorkerID:         args[7].Value.(string),
+			QueuedAt:         args[8].Value.(time.Time),
+			LastErrorCode:    args[11].Value.(string),
+			LastErrorMessage: args[12].Value.(string),
+			LatencyMS:        args[13].Value.(int64),
+			CreatedAt:        args[14].Value.(time.Time),
+			UpdatedAt:        args[15].Value.(time.Time),
+		}
+		if args[9].Value != nil {
+			value := args[9].Value.(time.Time)
+			job.StartedAt = &value
+		}
+		if args[10].Value != nil {
+			value := args[10].Value.(time.Time)
+			job.FinishedAt = &value
+		}
+		c.state.messageJobs[job.ID] = job
+		return driver.RowsAffected(1), nil
 	case strings.Contains(query, "INSERT INTO knowledge_chunks"):
 		var metadata []byte
 		switch value := args[6].Value.(type) {
@@ -244,6 +273,56 @@ func (c *fakePGConn) ExecContext(ctx context.Context, query string, args []drive
 			BuiltAt:           args[4].Value.(time.Time),
 		}
 		c.state.indexMeta[metadata.KnowledgeBase] = metadata
+		return driver.RowsAffected(1), nil
+	case strings.Contains(query, "UPDATE message_jobs") && strings.Contains(query, "attempt_count = attempt_count + 1"):
+		jobID := args[0].Value.(string)
+		job, ok := c.state.messageJobs[jobID]
+		if !ok {
+			return driver.RowsAffected(0), nil
+		}
+		job.AttemptCount++
+		job.UpdatedAt = args[1].Value.(time.Time)
+		c.state.messageJobs[jobID] = job
+		return driver.RowsAffected(1), nil
+	case strings.Contains(query, "UPDATE message_jobs") && strings.Contains(query, "worker_id = $3"):
+		jobID := args[0].Value.(string)
+		job, ok := c.state.messageJobs[jobID]
+		if !ok {
+			return driver.RowsAffected(0), nil
+		}
+		startedAt := args[3].Value.(time.Time)
+		job.Status = model.MessageJobStatus(args[1].Value.(string))
+		job.WorkerID = args[2].Value.(string)
+		job.StartedAt = &startedAt
+		job.UpdatedAt = startedAt
+		c.state.messageJobs[jobID] = job
+		return driver.RowsAffected(1), nil
+	case strings.Contains(query, "UPDATE message_jobs") && strings.Contains(query, "latency_ms = $4"):
+		jobID := args[0].Value.(string)
+		job, ok := c.state.messageJobs[jobID]
+		if !ok {
+			return driver.RowsAffected(0), nil
+		}
+		finishedAt := args[2].Value.(time.Time)
+		job.Status = model.MessageJobStatus(args[1].Value.(string))
+		job.FinishedAt = &finishedAt
+		job.LatencyMS = args[3].Value.(int64)
+		job.UpdatedAt = finishedAt
+		c.state.messageJobs[jobID] = job
+		return driver.RowsAffected(1), nil
+	case strings.Contains(query, "UPDATE message_jobs") && strings.Contains(query, "last_error_code = $4"):
+		jobID := args[0].Value.(string)
+		job, ok := c.state.messageJobs[jobID]
+		if !ok {
+			return driver.RowsAffected(0), nil
+		}
+		finishedAt := args[2].Value.(time.Time)
+		job.Status = model.MessageJobStatus(args[1].Value.(string))
+		job.FinishedAt = &finishedAt
+		job.LastErrorCode = args[3].Value.(string)
+		job.LastErrorMessage = args[4].Value.(string)
+		job.UpdatedAt = finishedAt
+		c.state.messageJobs[jobID] = job
 		return driver.RowsAffected(1), nil
 	case strings.Contains(query, "DELETE FROM session_messages"):
 		sessionID := args[0].Value.(string)
@@ -330,6 +409,20 @@ func (c *fakePGConn) QueryContext(ctx context.Context, query string, args []driv
 			return &fakeRows{}, nil
 		}
 		return sessionMemoryRows([]model.SessionMemory{memory}), nil
+	case strings.Contains(query, "FROM message_jobs") && strings.Contains(query, "WHERE id = $1"):
+		job, ok := c.state.messageJobs[args[0].Value.(string)]
+		if !ok {
+			return &fakeRows{}, nil
+		}
+		return messageJobRows([]model.MessageJob{job}), nil
+	case strings.Contains(query, "FROM message_jobs") && strings.Contains(query, "WHERE message_id = $1"):
+		messageID := args[0].Value.(string)
+		for _, job := range c.state.messageJobs {
+			if job.MessageID == messageID {
+				return messageJobRows([]model.MessageJob{job}), nil
+			}
+		}
+		return &fakeRows{}, nil
 	case strings.Contains(query, "FROM session_messages"):
 		session, ok := c.state.gameSessions[args[0].Value.(string)]
 		if !ok {
@@ -522,6 +615,47 @@ func sessionMemoryRows(memories []model.SessionMemory) driver.Rows {
 			events,
 			memory.UpdatedAt,
 		})
+	}
+	return rows
+}
+
+func messageJobRows(jobs []model.MessageJob) driver.Rows {
+	rows := &fakeRows{
+		cols: []string{
+			"id", "message_id", "session_id", "user_id", "status",
+			"attempt_count", "max_attempts", "worker_id",
+			"queued_at", "started_at", "finished_at",
+			"last_error_code", "last_error_message", "latency_ms",
+			"created_at", "updated_at",
+		},
+		data: make([][]driver.Value, 0, len(jobs)),
+	}
+	for _, job := range jobs {
+		row := []driver.Value{
+			job.ID,
+			job.MessageID,
+			job.SessionID,
+			job.UserID,
+			string(job.Status),
+			int64(job.AttemptCount),
+			int64(job.MaxAttempts),
+			job.WorkerID,
+			job.QueuedAt,
+			nil,
+			nil,
+			job.LastErrorCode,
+			job.LastErrorMessage,
+			job.LatencyMS,
+			job.CreatedAt,
+			job.UpdatedAt,
+		}
+		if job.StartedAt != nil {
+			row[9] = *job.StartedAt
+		}
+		if job.FinishedAt != nil {
+			row[10] = *job.FinishedAt
+		}
+		rows.data = append(rows.data, row)
 	}
 	return rows
 }
