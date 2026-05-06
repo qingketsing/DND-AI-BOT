@@ -10,6 +10,7 @@ const channel = __ENV.CHANNEL || 'web';
 const messageMode = (__ENV.MESSAGE_MODE || 'L1').toUpperCase();
 const thinkTimeSeconds = Number(__ENV.THINK_TIME_SECONDS || '1');
 const stagesEnv = __ENV.STAGES || '1:3m,2:3m,5:3m,10:3m';
+const authCookieName = 'dnd_auth_session';
 
 const messageFailureRate = new Rate('message_failure_rate');
 const messageDuration = new Trend('message_duration_ms', true);
@@ -45,6 +46,7 @@ export const options = {
 
 let initialized = false;
 let sessionID = '';
+let authToken = '';
 
 export default function () {
   ensureSession();
@@ -52,7 +54,7 @@ export default function () {
   const content = selectedPayloads[exec.scenario.iterationInTest % selectedPayloads.length];
   const body = JSON.stringify({ content });
   const response = http.post(`${baseURL}/sessions/${sessionID}/messages`, body, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
     tags: {
       endpoint: 'messages',
       message_mode: messageMode,
@@ -112,11 +114,16 @@ function ensureSession() {
     throw new Error(`login failed: status=${loginResponse.status} body=${loginResponse.body}`);
   }
 
+  authToken = extractAuthToken(loginResponse);
+  if (!authToken) {
+    throw new Error(`login response missing ${authCookieName} cookie`);
+  }
+
   const createResponse = http.post(
     `${baseURL}/sessions`,
     JSON.stringify({ channel }),
     {
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders(),
       tags: { endpoint: 'create_session' },
       timeout: __ENV.REQUEST_TIMEOUT || '180s',
     },
@@ -155,4 +162,22 @@ function parseStages(raw) {
       }
       return { target, duration };
     });
+}
+
+function authHeaders() {
+  const headers = { 'Content-Type': 'application/json' };
+  if (authToken) {
+    headers.Cookie = `${authCookieName}=${authToken}`;
+    headers.Authorization = `Bearer ${authToken}`;
+  }
+  return headers;
+}
+
+function extractAuthToken(response) {
+  const cookies = response.cookies || {};
+  const authCookies = cookies[authCookieName];
+  if (Array.isArray(authCookies) && authCookies.length > 0 && authCookies[0].value) {
+    return authCookies[0].value;
+  }
+  return '';
 }
