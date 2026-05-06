@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"DND-AI-BOT/internal/model"
+	"DND-AI-BOT/internal/queue"
 	"DND-AI-BOT/internal/ratelimit"
 	"DND-AI-BOT/internal/repository/memory"
 	"DND-AI-BOT/internal/service"
@@ -119,6 +120,109 @@ func TestSendMessageReturnsUpdatedSession(t *testing.T) {
 	}
 	if response.History[0].Source != "user" || response.History[1].Source != "agent" {
 		t.Fatalf("expected user and agent sources, got %+v", response.History)
+	}
+}
+
+func TestSendMessageReturnsAcceptedWhenAsyncServiceConfigured(t *testing.T) {
+	sessions := memory.NewSessionRepository()
+	jobs := memory.NewMessageJobRepository()
+	sessionService := service.NewSessionService(sessions)
+	asyncService := service.NewAsyncMessageService(sessions, jobs, &fakeHandlerMessageJobPublisher{})
+	ctx := context.Background()
+	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
+	session, err := sessionService.CreateSession(ctx, service.CreateSessionInput{UserID: "user-1", Channel: model.ChannelWeb}, now)
+	if err != nil {
+		t.Fatalf("expected create session to succeed, got %v", err)
+	}
+	handler := NewSessionHandler(sessionService, WithAsyncMessageService(asyncService))
+
+	body := `{"content":"hello"}`
+	request := httptest.NewRequest(http.MethodPost, "/sessions/"+session.ID+"/messages", strings.NewReader(body))
+	request = request.WithContext(middleware.WithAuthenticatedUser(request.Context(), middleware.AuthenticatedUser{
+		UserID:      "user-1",
+		DisplayName: "Alice",
+	}))
+	recorder := httptest.NewRecorder()
+
+	handler.SendMessage(recorder, request)
+
+	if recorder.Code != http.StatusAccepted {
+		t.Fatalf("expected status %d, got %d", http.StatusAccepted, recorder.Code)
+	}
+
+	var response struct {
+		MessageID string `json:"message_id"`
+		JobID     string `json:"job_id"`
+		Status    string `json:"status"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("expected valid json response, got %v", err)
+	}
+	if response.MessageID == "" || response.JobID == "" {
+		t.Fatalf("expected message and job ids, got %+v", response)
+	}
+	if response.Status != "queued" {
+		t.Fatalf("expected queued status, got %q", response.Status)
+	}
+}
+
+func TestGetMessageReturnsAsyncStatus(t *testing.T) {
+	sessions := memory.NewSessionRepository()
+	jobs := memory.NewMessageJobRepository()
+	sessionService := service.NewSessionService(sessions)
+	asyncService := service.NewAsyncMessageService(sessions, jobs, &fakeHandlerMessageJobPublisher{})
+	handler := NewSessionHandler(sessionService, WithAsyncMessageService(asyncService))
+
+	now := time.Date(2026, 4, 2, 12, 0, 0, 0, time.UTC)
+	session := model.NewSession("session-1", "user-1", model.ChannelWeb, now)
+	record := session.AppendUserMessage(model.SessionUser{ID: "user-1", Name: "Alice"}, "hello", now.Add(time.Minute))
+	if err := sessions.Save(context.Background(), session); err != nil {
+		t.Fatalf("expected session save to succeed, got %v", err)
+	}
+	if err := jobs.Create(context.Background(), model.MessageJob{
+		ID:        "job-1",
+		MessageID: record.ID,
+		SessionID: "session-1",
+		UserID:    "user-1",
+		Status:    model.MessageJobQueued,
+		QueuedAt:  now.Add(time.Minute),
+		CreatedAt: now.Add(time.Minute),
+		UpdatedAt: now.Add(time.Minute),
+	}); err != nil {
+		t.Fatalf("expected job create to succeed, got %v", err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/messages/"+record.ID, nil)
+	request = request.WithContext(middleware.WithAuthenticatedUser(request.Context(), middleware.AuthenticatedUser{
+		UserID:      "user-1",
+		DisplayName: "Alice",
+	}))
+	recorder := httptest.NewRecorder()
+
+	handler.GetMessage(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, recorder.Code)
+	}
+
+	var response struct {
+		MessageID string `json:"message_id"`
+		Status    string `json:"status"`
+		Job       struct {
+			ID string `json:"id"`
+		} `json:"job"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("expected valid json response, got %v", err)
+	}
+	if response.MessageID != record.ID {
+		t.Fatalf("expected message id %q, got %q", record.ID, response.MessageID)
+	}
+	if response.Status != "queued" {
+		t.Fatalf("expected queued status, got %q", response.Status)
+	}
+	if response.Job.ID != "job-1" {
+		t.Fatalf("expected job id job-1, got %q", response.Job.ID)
 	}
 }
 
@@ -308,4 +412,12 @@ type fakeSessionRateLimitClock struct {
 
 func (c fakeSessionRateLimitClock) Now() time.Time {
 	return c.now
+}
+
+type fakeHandlerMessageJobPublisher struct{}
+
+func (f *fakeHandlerMessageJobPublisher) Publish(ctx context.Context, payload queue.MessageJobPayload) error {
+	_ = ctx
+	_ = payload
+	return nil
 }

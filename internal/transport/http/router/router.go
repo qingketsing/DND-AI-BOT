@@ -32,6 +32,9 @@ func NewRouter(
 	mux.HandleFunc("/auth/login", authHandler.Login)
 	mux.HandleFunc("/auth/logout", authHandler.Logout)
 	mux.Handle("/auth/me", authMiddleware(http.HandlerFunc(authHandler.Me)))
+	mux.Handle("/messages/", authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sessionHandler.GetMessage(w, r)
+	})))
 
 	mux.Handle("/sessions", authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {

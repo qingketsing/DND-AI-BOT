@@ -17,8 +17,9 @@ import (
 
 // SessionHandler 负责处理会话相关 HTTP 请求。
 type SessionHandler struct {
-	service    *service.SessionService
-	rateLimits *ratelimit.Service
+	service             *service.SessionService
+	asyncMessageService *service.AsyncMessageService
+	rateLimits          *ratelimit.Service
 }
 
 type successResponse struct {
@@ -42,6 +43,12 @@ func NewSessionHandler(service *service.SessionService, options ...SessionHandle
 func WithSessionRateLimiter(rateLimits *ratelimit.Service) SessionHandlerOption {
 	return func(handler *SessionHandler) {
 		handler.rateLimits = rateLimits
+	}
+}
+
+func WithAsyncMessageService(asyncMessageService *service.AsyncMessageService) SessionHandlerOption {
+	return func(handler *SessionHandler) {
+		handler.asyncMessageService = asyncMessageService
 	}
 }
 
@@ -191,6 +198,19 @@ func (h *SessionHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if h.asyncMessageService != nil {
+		result, err := h.asyncMessageService.EnqueueMessage(r.Context(), user.UserID, user.DisplayName, service.EnqueueMessageInput{
+			SessionID: sessionID,
+			Content:   request.Content,
+		}, time.Now().UTC())
+		if err != nil {
+			handleServiceError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusAccepted, dto.ToEnqueueMessageResponse(result))
+		return
+	}
+
 	session, err := h.service.SendMessage(r.Context(), user.UserID, user.DisplayName, service.SendMessageInput{
 		SessionID: sessionID,
 		Content:   request.Content,
@@ -203,6 +223,38 @@ func (h *SessionHandler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, dto.ToSessionResponse(session))
 }
 
+// GetMessage 处理异步消息状态查询请求。
+func (h *SessionHandler) GetMessage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	if h.asyncMessageService == nil {
+		writeError(w, http.StatusNotFound, "message_status_unavailable", "message status endpoint is unavailable")
+		return
+	}
+
+	user, ok := middleware.UserFromContext(r.Context())
+	if !ok {
+		handleServiceError(w, service.ErrUnauthorized)
+		return
+	}
+
+	messageID := readMessageID(r.URL.Path)
+	if messageID == "" {
+		writeError(w, http.StatusBadRequest, "invalid_request", "message id is required")
+		return
+	}
+
+	result, err := h.asyncMessageService.GetMessageStatus(r.Context(), messageID, user.UserID)
+	if err != nil {
+		handleServiceError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, dto.ToMessageStatusResponse(result))
+}
+
 func handleServiceError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, service.ErrUnauthorized):
@@ -213,6 +265,8 @@ func handleServiceError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusForbidden, "session_forbidden", err.Error())
 	case errors.Is(err, repository.ErrSessionNotFound):
 		writeError(w, http.StatusNotFound, "session_not_found", err.Error())
+	case errors.Is(err, repository.ErrMessageJobNotFound):
+		writeError(w, http.StatusNotFound, "message_not_found", err.Error())
 	default:
 		writeError(w, http.StatusInternalServerError, "internal_error", "internal server error")
 	}
@@ -235,6 +289,16 @@ func readSessionID(path string) string {
 	trimmed := strings.Trim(path, "/")
 	parts := strings.Split(trimmed, "/")
 	if len(parts) < 2 || parts[0] != "sessions" {
+		return ""
+	}
+
+	return parts[1]
+}
+
+func readMessageID(path string) string {
+	trimmed := strings.Trim(path, "/")
+	parts := strings.Split(trimmed, "/")
+	if len(parts) < 2 || parts[0] != "messages" {
 		return ""
 	}
 

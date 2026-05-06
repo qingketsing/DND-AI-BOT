@@ -1,6 +1,9 @@
 package model
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // MessageSource定义为字符串
 type MessageSource string
@@ -115,11 +118,12 @@ func (s *Session) appendRecord(record HistoryRecord) {
 }
 
 func (s *Session) newRecord(source MessageSource, user SessionUser, content string, now time.Time) HistoryRecord {
+	sequence := s.NextSequence()
 	return HistoryRecord{
-		ID:        user.ID,
+		ID:        fmt.Sprintf("%s-msg-%d", s.ID, sequence),
 		User:      user,
 		Message:   Message{Content: content},
-		Sequence:  s.NextSequence(),
+		Sequence:  sequence,
 		Source:    source,
 		CreatedAt: now,
 	}

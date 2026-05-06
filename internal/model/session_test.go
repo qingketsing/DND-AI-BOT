@@ -44,8 +44,8 @@ func TestAppendUserMessageAddsRecordAndUpdatesSession(t *testing.T) {
 	if len(session.History) != 1 {
 		t.Fatalf("expected 1 record, got %d", len(session.History))
 	}
-	if record.ID != "user-1" {
-		t.Fatalf("expected record id user-1, got %q", record.ID)
+	if record.ID != "session-1-msg-1" {
+		t.Fatalf("expected record id session-1-msg-1, got %q", record.ID)
 	}
 	if record.Sequence != 1 {
 		t.Fatalf("expected sequence 1, got %d", record.Sequence)
