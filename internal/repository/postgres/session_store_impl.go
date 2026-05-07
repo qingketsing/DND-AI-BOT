@@ -13,6 +13,11 @@ type PGSessionStore struct {
 	db *sql.DB
 }
 
+type sessionMessageAsyncFields struct {
+	sourceJobID      string
+	replyToMessageID string
+}
+
 // NewPGSessionStore 创建基于 database/sql 的 Session PG 存储实现。
 func NewPGSessionStore(db *sql.DB) *PGSessionStore {
 	return &PGSessionStore{db: db}
@@ -39,15 +44,21 @@ func (s *PGSessionStore) UpsertSession(ctx context.Context, session *model.Sessi
 		return err
 	}
 
+	existingAsyncFields, err := loadSessionMessageAsyncFields(ctx, tx, session.ID)
+	if err != nil {
+		return err
+	}
+
 	if _, err := tx.ExecContext(ctx, `DELETE FROM session_messages WHERE session_id = $1`, session.ID); err != nil {
 		return err
 	}
 
 	for _, record := range session.History {
+		asyncFields := existingAsyncFields[record.ID]
 		_, err = tx.ExecContext(ctx, `
 			INSERT INTO session_messages (
-				id, session_id, user_id, user_name, content, sequence, source, created_at
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+				id, session_id, user_id, user_name, content, sequence, source, role, source_job_id, reply_to_message_id, created_at
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		`,
 			record.ID,
 			session.ID,
@@ -56,6 +67,9 @@ func (s *PGSessionStore) UpsertSession(ctx context.Context, session *model.Sessi
 			record.Message.Content,
 			record.Sequence,
 			string(record.Source),
+			messageRoleFromSource(record.Source),
+			nullableString(asyncFields.sourceJobID),
+			nullableString(asyncFields.replyToMessageID),
 			record.CreatedAt,
 		)
 		if err != nil {
@@ -64,6 +78,39 @@ func (s *PGSessionStore) UpsertSession(ctx context.Context, session *model.Sessi
 	}
 
 	return tx.Commit()
+}
+
+func loadSessionMessageAsyncFields(ctx context.Context, tx *sql.Tx, sessionID string) (map[string]sessionMessageAsyncFields, error) {
+	rows, err := tx.QueryContext(ctx, `
+		SELECT id, source_job_id, reply_to_message_id
+		FROM session_messages
+		WHERE session_id = $1
+	`, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	fieldsByMessageID := make(map[string]sessionMessageAsyncFields)
+	for rows.Next() {
+		var (
+			messageID        string
+			sourceJobID      sql.NullString
+			replyToMessageID sql.NullString
+		)
+		if err := rows.Scan(&messageID, &sourceJobID, &replyToMessageID); err != nil {
+			return nil, err
+		}
+		fieldsByMessageID[messageID] = sessionMessageAsyncFields{
+			sourceJobID:      sourceJobID.String,
+			replyToMessageID: replyToMessageID.String,
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return fieldsByMessageID, nil
 }
 
 // GetSession 从数据库中查询会话数据，并构建完整的 Session 对象返回。如果会话不存在，返回 repository.ErrSessionNotFound 错误。
@@ -215,4 +262,24 @@ func (s *PGSessionStore) DeleteSession(ctx context.Context, sessionID string) er
 	}
 
 	return tx.Commit()
+}
+
+func messageRoleFromSource(source model.MessageSource) string {
+	switch source {
+	case model.MessageSourceUser:
+		return "user"
+	case model.MessageSourceAgent:
+		return "assistant"
+	case model.MessageSourceSystem:
+		return "system"
+	default:
+		return string(source)
+	}
+}
+
+func nullableString(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
 }

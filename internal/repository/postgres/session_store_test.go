@@ -36,6 +36,38 @@ func TestPGSessionStoreUpsertAndGetSession(t *testing.T) {
 	}
 }
 
+func TestPGSessionStoreUpsertPreservesAsyncMessageFields(t *testing.T) {
+	state := newFakePGState()
+	db := newFakePGDB(t, state)
+	store := NewPGSessionStore(db)
+
+	now := time.Date(2026, 4, 12, 8, 30, 0, 0, time.UTC)
+	session := model.NewSession("session-async", "user-1", model.ChannelWeb, now)
+	record := session.AppendAgentMessage(model.SessionUser{ID: "assistant", Name: "DM"}, "reply", now.Add(time.Minute))
+
+	if err := store.UpsertSession(context.Background(), session); err != nil {
+		t.Fatalf("expected initial upsert to succeed, got %v", err)
+	}
+
+	state.messageAsync[record.ID] = fakeSessionMessageAsyncFields{
+		SessionID:        session.ID,
+		SourceJobID:      "job-123",
+		ReplyToMessageID: "session-async-msg-0",
+	}
+
+	if err := store.UpsertSession(context.Background(), session); err != nil {
+		t.Fatalf("expected second upsert to succeed, got %v", err)
+	}
+
+	fields, ok := state.messageAsync[record.ID]
+	if !ok {
+		t.Fatalf("expected async fields for %s to be preserved", record.ID)
+	}
+	if fields.SourceJobID != "job-123" || fields.ReplyToMessageID != "session-async-msg-0" {
+		t.Fatalf("expected async fields to round-trip, got %+v", fields)
+	}
+}
+
 func TestPGSessionStoreGetSessionReturnsNotFound(t *testing.T) {
 	state := newFakePGState()
 	db := newFakePGDB(t, state)

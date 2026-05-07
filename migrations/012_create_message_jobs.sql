@@ -14,7 +14,9 @@ CREATE TABLE IF NOT EXISTS message_jobs (
     last_error_message TEXT NOT NULL DEFAULT '',
     latency_ms BIGINT NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL
+    updated_at TIMESTAMPTZ NOT NULL,
+    CONSTRAINT chk_message_jobs_status
+        CHECK (status IN ('queued', 'published', 'processing', 'completed', 'retryable_failed', 'failed', 'cancelled'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_message_jobs_status_created_at

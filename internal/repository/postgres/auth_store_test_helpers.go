@@ -26,10 +26,18 @@ type fakePGState struct {
 	sessions     map[string]model.AuthSession
 	tokens       map[string]string
 	gameSessions map[string]model.Session
+	messageAsync map[string]fakeSessionMessageAsyncFields
 	memories     map[string]model.SessionMemory
 	messageJobs  map[string]model.MessageJob
+	outboxEvents map[string]model.OutboxEvent
 	indexMeta    map[string]fakeKnowledgeIndexMetadata
 	knowledge    map[string]fakeKnowledgeChunk
+}
+
+type fakeSessionMessageAsyncFields struct {
+	SessionID        string
+	SourceJobID      string
+	ReplyToMessageID string
 }
 
 type fakeKnowledgeIndexMetadata struct {
@@ -60,8 +68,10 @@ func newFakePGState() *fakePGState {
 		sessions:     make(map[string]model.AuthSession),
 		tokens:       make(map[string]string),
 		gameSessions: make(map[string]model.Session),
+		messageAsync: make(map[string]fakeSessionMessageAsyncFields),
 		memories:     make(map[string]model.SessionMemory),
 		messageJobs:  make(map[string]model.MessageJob),
+		outboxEvents: make(map[string]model.OutboxEvent),
 		indexMeta:    make(map[string]fakeKnowledgeIndexMetadata),
 		knowledge:    make(map[string]fakeKnowledgeChunk),
 	}
@@ -232,6 +242,34 @@ func (c *fakePGConn) ExecContext(ctx context.Context, query string, args []drive
 		}
 		c.state.messageJobs[job.ID] = job
 		return driver.RowsAffected(1), nil
+	case strings.Contains(query, "INSERT INTO outbox_events"):
+		var payload []byte
+		switch value := args[4].Value.(type) {
+		case []byte:
+			payload = append([]byte(nil), value...)
+		case string:
+			payload = []byte(value)
+		default:
+			return nil, fmt.Errorf("unexpected outbox payload type %T", value)
+		}
+		event := model.OutboxEvent{
+			ID:            args[0].Value.(string),
+			AggregateType: args[1].Value.(string),
+			AggregateID:   args[2].Value.(string),
+			EventType:     args[3].Value.(string),
+			PayloadJSON:   payload,
+			Status:        model.OutboxEventStatus(args[5].Value.(string)),
+			AttemptCount:  int(args[6].Value.(int64)),
+			LastError:     args[7].Value.(string),
+			CreatedAt:     args[8].Value.(time.Time),
+			UpdatedAt:     args[10].Value.(time.Time),
+		}
+		if args[9].Value != nil {
+			value := args[9].Value.(time.Time)
+			event.PublishedAt = &value
+		}
+		c.state.outboxEvents[event.ID] = event
+		return driver.RowsAffected(1), nil
 	case strings.Contains(query, "INSERT INTO knowledge_chunks"):
 		var metadata []byte
 		switch value := args[6].Value.(type) {
@@ -324,6 +362,32 @@ func (c *fakePGConn) ExecContext(ctx context.Context, query string, args []drive
 		job.UpdatedAt = finishedAt
 		c.state.messageJobs[jobID] = job
 		return driver.RowsAffected(1), nil
+	case strings.Contains(query, "UPDATE outbox_events") && strings.Contains(query, "attempt_count = attempt_count + 1"):
+		eventID := args[0].Value.(string)
+		event, ok := c.state.outboxEvents[eventID]
+		if !ok {
+			return driver.RowsAffected(0), nil
+		}
+		failedAt := args[3].Value.(time.Time)
+		event.Status = model.OutboxEventStatus(args[1].Value.(string))
+		event.AttemptCount++
+		event.LastError = args[2].Value.(string)
+		event.UpdatedAt = failedAt
+		c.state.outboxEvents[eventID] = event
+		return driver.RowsAffected(1), nil
+	case strings.Contains(query, "UPDATE outbox_events") && strings.Contains(query, "published_at = $3"):
+		eventID := args[0].Value.(string)
+		event, ok := c.state.outboxEvents[eventID]
+		if !ok {
+			return driver.RowsAffected(0), nil
+		}
+		publishedAt := args[2].Value.(time.Time)
+		event.Status = model.OutboxEventStatus(args[1].Value.(string))
+		event.LastError = ""
+		event.PublishedAt = &publishedAt
+		event.UpdatedAt = publishedAt
+		c.state.outboxEvents[eventID] = event
+		return driver.RowsAffected(1), nil
 	case strings.Contains(query, "DELETE FROM session_messages"):
 		sessionID := args[0].Value.(string)
 		session, ok := c.state.gameSessions[sessionID]
@@ -332,6 +396,11 @@ func (c *fakePGConn) ExecContext(ctx context.Context, query string, args []drive
 		}
 		session.History = nil
 		c.state.gameSessions[sessionID] = session
+		for messageID, fields := range c.state.messageAsync {
+			if fields.SessionID == sessionID {
+				delete(c.state.messageAsync, messageID)
+			}
+		}
 		return driver.RowsAffected(1), nil
 	case strings.Contains(query, "DELETE FROM sessions"):
 		sessionID := args[0].Value.(string)
@@ -343,6 +412,10 @@ func (c *fakePGConn) ExecContext(ctx context.Context, query string, args []drive
 	case strings.Contains(query, "INSERT INTO session_messages"):
 		sessionID := args[1].Value.(string)
 		session := c.state.gameSessions[sessionID]
+		createdAtIndex := 8
+		if len(args) > 10 {
+			createdAtIndex = 10
+		}
 		session.History = append(session.History, model.HistoryRecord{
 			ID: args[0].Value.(string),
 			User: model.SessionUser{
@@ -354,8 +427,16 @@ func (c *fakePGConn) ExecContext(ctx context.Context, query string, args []drive
 			},
 			Sequence:  args[5].Value.(int64),
 			Source:    model.MessageSource(args[6].Value.(string)),
-			CreatedAt: args[7].Value.(time.Time),
+			CreatedAt: args[createdAtIndex].Value.(time.Time),
 		})
+		asyncFields := fakeSessionMessageAsyncFields{SessionID: sessionID}
+		if len(args) > 8 && args[8].Value != nil {
+			asyncFields.SourceJobID = args[8].Value.(string)
+		}
+		if len(args) > 9 && args[9].Value != nil {
+			asyncFields.ReplyToMessageID = args[9].Value.(string)
+		}
+		c.state.messageAsync[args[0].Value.(string)] = asyncFields
 		c.state.gameSessions[sessionID] = session
 		return driver.RowsAffected(1), nil
 	default:
@@ -423,6 +504,47 @@ func (c *fakePGConn) QueryContext(ctx context.Context, query string, args []driv
 			}
 		}
 		return &fakeRows{}, nil
+	case strings.Contains(query, "FROM outbox_events"):
+		statuses := make(map[string]struct{}, len(args)-1)
+		for _, arg := range args[:len(args)-1] {
+			statuses[arg.Value.(string)] = struct{}{}
+		}
+		limit := int(args[len(args)-1].Value.(int64))
+		events := make([]model.OutboxEvent, 0)
+		for _, event := range c.state.outboxEvents {
+			if _, ok := statuses[string(event.Status)]; ok {
+				events = append(events, event)
+			}
+		}
+		sort.SliceStable(events, func(i, j int) bool {
+			if events[i].CreatedAt.Equal(events[j].CreatedAt) {
+				return events[i].ID < events[j].ID
+			}
+			return events[i].CreatedAt.Before(events[j].CreatedAt)
+		})
+		return outboxEventRows(events, limit), nil
+	case strings.Contains(query, "FROM session_messages") && strings.Contains(query, "source_job_id"):
+		sessionID := args[0].Value.(string)
+		rows := &fakeRows{
+			cols: []string{"id", "source_job_id", "reply_to_message_id"},
+		}
+		for messageID, fields := range c.state.messageAsync {
+			if fields.SessionID != sessionID {
+				continue
+			}
+			row := []driver.Value{messageID, nil, nil}
+			if fields.SourceJobID != "" {
+				row[1] = fields.SourceJobID
+			}
+			if fields.ReplyToMessageID != "" {
+				row[2] = fields.ReplyToMessageID
+			}
+			rows.data = append(rows.data, row)
+		}
+		sort.SliceStable(rows.data, func(i, j int) bool {
+			return rows.data[i][0].(string) < rows.data[j][0].(string)
+		})
+		return rows, nil
 	case strings.Contains(query, "FROM session_messages"):
 		session, ok := c.state.gameSessions[args[0].Value.(string)]
 		if !ok {
@@ -654,6 +776,39 @@ func messageJobRows(jobs []model.MessageJob) driver.Rows {
 		}
 		if job.FinishedAt != nil {
 			row[10] = *job.FinishedAt
+		}
+		rows.data = append(rows.data, row)
+	}
+	return rows
+}
+
+func outboxEventRows(events []model.OutboxEvent, limit int) driver.Rows {
+	rows := &fakeRows{
+		cols: []string{
+			"id", "aggregate_type", "aggregate_id", "event_type", "payload_json",
+			"status", "attempt_count", "last_error", "created_at", "published_at", "updated_at",
+		},
+		data: make([][]driver.Value, 0, len(events)),
+	}
+	for i, event := range events {
+		if limit > 0 && i >= limit {
+			break
+		}
+		row := []driver.Value{
+			event.ID,
+			event.AggregateType,
+			event.AggregateID,
+			event.EventType,
+			[]byte(event.PayloadJSON),
+			string(event.Status),
+			int64(event.AttemptCount),
+			event.LastError,
+			event.CreatedAt,
+			nil,
+			event.UpdatedAt,
+		}
+		if event.PublishedAt != nil {
+			row[9] = *event.PublishedAt
 		}
 		rows.data = append(rows.data, row)
 	}
