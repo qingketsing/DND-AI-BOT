@@ -124,6 +124,7 @@
 - `content`
 - `status`
 - `reply_to_message_id`（仅 assistant message 使用）
+- `source_job_id`（仅 assistant message 使用）
 - `created_at`
 - `updated_at`
 
@@ -132,6 +133,17 @@
 - user message 在事务内写入
 - assistant message 由 worker 成功处理后写入
 - assistant message 必须带 `reply_to_message_id`
+- assistant message 建议同时带 `source_job_id`
+
+建议增加数据库唯一约束，作为最终幂等锁：
+
+- `UNIQUE(reply_to_message_id) WHERE role = 'assistant'`
+- `UNIQUE(source_job_id) WHERE role = 'assistant'`
+
+含义：
+
+- 一条 user message 最多只能有一条 assistant reply
+- 一个 job 最多只能产出一条 assistant reply
 
 ### message_jobs
 
@@ -318,22 +330,48 @@ JSON 序列化的所有者信息：
 
 ### 幂等键
 
-`job_id` 是异步执行的主幂等键。
+正式采用双层幂等：
+
+- `job_id`：异步执行幂等键
+- `reply_to_message_id / source_job_id`：结果幂等键
 
 ### 规则
 
 1. worker 开始处理前先读取 `message_job`
 2. 如果 job 已经是 `completed`，直接 ack MQ，不再重复执行
 3. assistant message 写入时必须带 `reply_to_message_id`
-4. 若同一 job 发生重复投递，不允许重复写两条 assistant reply
+4. assistant message 建议同时写入 `source_job_id`
+5. 写 assistant message 时依赖数据库唯一约束作为最终幂等锁
+6. 若发生唯一约束冲突，不视为系统错误，而视为“该消息已被成功处理”
 
 ### reply 关联
 
 正式采用：
 
 - `assistant_message.reply_to_message_id = user_message.id`
+- `assistant_message.source_job_id = message_job.id`
 
 不再依赖“用户消息后面的第一条 agent message”这种隐式查找。
+
+### 唯一约束冲突的处理语义
+
+如果 worker 在写 assistant message 时命中：
+
+- `reply_to_message_id` 唯一约束
+- 或 `source_job_id` 唯一约束
+
+说明：
+
+- 已有别的 worker 或更早的一次执行成功写出了结果
+- 当前这次属于幂等命中
+
+处理方式：
+
+1. 重新读取已有 assistant reply
+2. 将当前 `message_job` 标记为 `completed`
+3. 正常 ack MQ
+
+即：唯一约束冲突代表幂等成功，而不是失败。
 
 ## Worker 执行流程
 
@@ -345,7 +383,7 @@ JSON 序列化的所有者信息：
 6. 启动 heartbeat 续约锁
 7. 读取 session / game_state / encounter / session_memory
 8. 调用 Agent / RAG / tools
-9. 写入 assistant message（带 `reply_to_message_id`）
+9. 写入 assistant message（带 `reply_to_message_id` 和 `source_job_id`）
 10. 将 job 标记为 `completed`
 11. 释放锁
 12. ack MQ
@@ -374,14 +412,31 @@ JSON 序列化的所有者信息：
 
 ### 重试策略
 
+第一版采用固定间隔重试，不引入指数退避：
+
 - 最大重试次数：`3`
-- 退避：`30s / 2m / 10m`
+- 每次 `retryable_failed` 后固定 `30s` 再重试
+
+适用理由：
+
+- 当前主要失败源以短时波动为主，如 LLM timeout、短暂网络异常、Redis/DB 临时错误
+- 对话系统对恢复时延更敏感，`10m` 级等待会显著破坏用户体验
+- 固定 `30s` 更适合作为第一版恢复闭环策略，便于观测和调试
 
 ### 超限策略
 
 - 超过最大重试次数后转 `failed`
 - 首版可以先用应用层重投
 - 第二版再接 RabbitMQ dead-letter queue
+
+### Session Busy 特例
+
+如果失败原因是：
+
+- `session lock` 暂时拿不到
+- 当前 session 已有另一条消息在执行
+
+则也归入 `retryable_failed`，并使用同样的 `30s` 固定重试策略。
 
 ### Stale Processing Recovery
 
@@ -497,7 +552,13 @@ GET /messages/{message_id}
 
 ### 风险 3：重复投递
 
-通过 `job_id` 幂等和 `reply_to_message_id` 显式关联规避。
+通过：
+
+- `job_id` 执行幂等
+- `reply_to_message_id / source_job_id` 显式关联
+- 数据库唯一约束兜底
+
+共同规避。
 
 ### 风险 4：processing 卡死
 
@@ -511,7 +572,7 @@ GET /messages/{message_id}
 4. 实现 RabbitMQ publisher / consumer
 5. 新增独立 `cmd/dnd-worker`
 6. 将 `MessageJobProcessor` 切换到 RabbitMQ 消费链路
-7. 增加 `reply_to_message_id`
+7. 增加 `reply_to_message_id` 与 `source_job_id`
 8. 增加锁续约
 9. 增加 retry / recovery
 10. 补观测指标
@@ -533,5 +594,5 @@ GET /messages/{message_id}
 - 使用独立 `dnd-worker` 进程消费 RabbitMQ
 - `dnd-app` 只负责接单、事务持久化、状态查询和 Outbox Dispatcher
 - 使用 Redis 租约锁 + heartbeat 续约
-- 使用 `job_id` + `reply_to_message_id` 保证幂等和回复关联
+- 使用 `job_id` + `reply_to_message_id / source_job_id` + 数据库唯一约束保证幂等和回复关联
 - 使用 `retryable_failed + recovery` 而不是单纯依赖一次消费成功
