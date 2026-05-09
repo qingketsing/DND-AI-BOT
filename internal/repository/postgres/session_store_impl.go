@@ -31,50 +31,35 @@ func (s *PGSessionStore) UpsertSession(ctx context.Context, session *model.Sessi
 	}
 	defer tx.Rollback()
 
-	_, err = tx.ExecContext(ctx, `
-		INSERT INTO sessions (id, user_id, title, channel, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
-		ON CONFLICT (id) DO UPDATE
-		SET user_id = EXCLUDED.user_id,
-		    title = EXCLUDED.title,
-		    channel = EXCLUDED.channel,
-		    updated_at = EXCLUDED.updated_at
-	`, session.ID, session.UserID, session.Title, string(session.Channel), session.CreatedAt, session.UpdatedAt)
+	if err := upsertSessionTx(ctx, tx, session); err != nil {
+		return err
+	}
+	if err := replaceSessionMessagesTx(ctx, tx, session, true); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+// EnqueueAsyncMessage 在单一事务内写入 session、queued job 与 pending outbox event。
+func (s *PGSessionStore) EnqueueAsyncMessage(ctx context.Context, session *model.Session, job model.MessageJob, event model.OutboxEvent) error {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
+	defer tx.Rollback()
 
-	existingAsyncFields, err := loadSessionMessageAsyncFields(ctx, tx, session.ID)
-	if err != nil {
+	if err := upsertSessionTx(ctx, tx, session); err != nil {
 		return err
 	}
-
-	if _, err := tx.ExecContext(ctx, `DELETE FROM session_messages WHERE session_id = $1`, session.ID); err != nil {
+	if err := replaceSessionMessagesTx(ctx, tx, session, false); err != nil {
 		return err
 	}
-
-	for _, record := range session.History {
-		asyncFields := existingAsyncFields[record.ID]
-		_, err = tx.ExecContext(ctx, `
-			INSERT INTO session_messages (
-				id, session_id, user_id, user_name, content, sequence, source, role, source_job_id, reply_to_message_id, created_at
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-		`,
-			record.ID,
-			session.ID,
-			record.User.ID,
-			record.User.Name,
-			record.Message.Content,
-			record.Sequence,
-			string(record.Source),
-			messageRoleFromSource(record.Source),
-			nullableString(asyncFields.sourceJobID),
-			nullableString(asyncFields.replyToMessageID),
-			record.CreatedAt,
-		)
-		if err != nil {
-			return err
-		}
+	if err := insertMessageJobTx(ctx, tx, job); err != nil {
+		return err
+	}
+	if err := insertOutboxEventTx(ctx, tx, event); err != nil {
+		return err
 	}
 
 	return tx.Commit()
@@ -137,7 +122,7 @@ func (s *PGSessionStore) GetSession(ctx context.Context, sessionID string) (*mod
 	}
 
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, user_id, user_name, content, sequence, source, created_at
+		SELECT id, user_id, user_name, content, sequence, source, source_job_id, reply_to_message_id, created_at
 		FROM session_messages
 		WHERE session_id = $1
 		ORDER BY sequence ASC
@@ -150,16 +135,18 @@ func (s *PGSessionStore) GetSession(ctx context.Context, sessionID string) (*mod
 	history := make([]model.HistoryRecord, 0)
 	for rows.Next() {
 		var (
-			recordID   string
-			userID     string
-			userName   string
-			content    string
-			sequence   int64
-			source     string
-			recordTime sql.NullTime
+			recordID         string
+			userID           string
+			userName         string
+			content          string
+			sequence         int64
+			source           string
+			sourceJobID      sql.NullString
+			replyToMessageID sql.NullString
+			recordTime       sql.NullTime
 		)
 
-		if err := rows.Scan(&recordID, &userID, &userName, &content, &sequence, &source, &recordTime); err != nil {
+		if err := rows.Scan(&recordID, &userID, &userName, &content, &sequence, &source, &sourceJobID, &replyToMessageID, &recordTime); err != nil {
 			return nil, err
 		}
 
@@ -172,9 +159,11 @@ func (s *PGSessionStore) GetSession(ctx context.Context, sessionID string) (*mod
 			Message: model.Message{
 				Content: content,
 			},
-			Sequence:  sequence,
-			Source:    model.MessageSource(source),
-			CreatedAt: recordTime.Time,
+			Sequence:         sequence,
+			Source:           model.MessageSource(source),
+			SourceJobID:      sourceJobID.String,
+			ReplyToMessageID: replyToMessageID.String,
+			CreatedAt:        recordTime.Time,
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -275,6 +264,96 @@ func messageRoleFromSource(source model.MessageSource) string {
 	default:
 		return string(source)
 	}
+}
+
+func upsertSessionTx(ctx context.Context, tx *sql.Tx, session *model.Session) error {
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO sessions (id, user_id, title, channel, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (id) DO UPDATE
+		SET user_id = EXCLUDED.user_id,
+		    title = EXCLUDED.title,
+		    channel = EXCLUDED.channel,
+		    updated_at = EXCLUDED.updated_at
+	`, session.ID, session.UserID, session.Title, string(session.Channel), session.CreatedAt, session.UpdatedAt)
+	return err
+}
+
+func replaceSessionMessagesTx(ctx context.Context, tx *sql.Tx, session *model.Session, preserveExisting bool) error {
+	existingAsyncFields := make(map[string]sessionMessageAsyncFields)
+	if preserveExisting {
+		var err error
+		existingAsyncFields, err = loadSessionMessageAsyncFields(ctx, tx, session.ID)
+		if err != nil {
+			return err
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM session_messages WHERE session_id = $1`, session.ID); err != nil {
+		return err
+	}
+
+	for _, record := range session.History {
+		if preserveExisting {
+			fields := existingAsyncFields[record.ID]
+			if record.SourceJobID == "" {
+				record.SourceJobID = fields.sourceJobID
+			}
+			if record.ReplyToMessageID == "" {
+				record.ReplyToMessageID = fields.replyToMessageID
+			}
+		}
+		if err := insertSessionMessageTx(ctx, tx, session.ID, record); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func insertSessionMessageTx(ctx context.Context, tx *sql.Tx, sessionID string, record model.HistoryRecord) error {
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO session_messages (
+			id, session_id, user_id, user_name, content, sequence, source, role, source_job_id, reply_to_message_id, created_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+	`,
+		record.ID,
+		sessionID,
+		record.User.ID,
+		record.User.Name,
+		record.Message.Content,
+		record.Sequence,
+		string(record.Source),
+		messageRoleFromSource(record.Source),
+		nullableString(record.SourceJobID),
+		nullableString(record.ReplyToMessageID),
+		record.CreatedAt,
+	)
+	return err
+}
+
+func insertMessageJobTx(ctx context.Context, tx *sql.Tx, job model.MessageJob) error {
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO message_jobs (
+			id, message_id, session_id, user_id, status,
+			attempt_count, max_attempts, worker_id,
+			queued_at, started_at, finished_at,
+			last_error_code, last_error_message, latency_ms,
+			created_at, updated_at
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+	`, job.ID, job.MessageID, job.SessionID, job.UserID, string(job.Status), job.AttemptCount, job.MaxAttempts, job.WorkerID, job.QueuedAt, job.StartedAt, job.FinishedAt, job.LastErrorCode, job.LastErrorMessage, job.LatencyMS, job.CreatedAt, job.UpdatedAt)
+	return err
+}
+
+func insertOutboxEventTx(ctx context.Context, tx *sql.Tx, event model.OutboxEvent) error {
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO outbox_events (
+			id, aggregate_type, aggregate_id, event_type, payload_json,
+			status, attempt_count, last_error, created_at, published_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+	`, event.ID, event.AggregateType, event.AggregateID, event.EventType, []byte(event.PayloadJSON), string(event.Status), event.AttemptCount, event.LastError, event.CreatedAt, event.PublishedAt, event.UpdatedAt)
+	return err
 }
 
 func nullableString(value string) any {

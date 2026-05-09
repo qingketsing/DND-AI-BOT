@@ -13,12 +13,14 @@ type SessionSnapshot struct {
 }
 
 type HistoryRecordSnapshot struct {
-	ID        string          `json:"id"`
-	User      SessionUser     `json:"user"`
-	Message   MessageSnapshot `json:"message"`
-	Sequence  int64           `json:"sequence"`
-	Source    MessageSource   `json:"source"`
-	CreatedAt time.Time       `json:"created_at"`
+	ID               string          `json:"id"`
+	User             SessionUser     `json:"user"`
+	Message          MessageSnapshot `json:"message"`
+	Sequence         int64           `json:"sequence"`
+	Source           MessageSource   `json:"source"`
+	SourceJobID      string          `json:"source_job_id,omitempty"`
+	ReplyToMessageID string          `json:"reply_to_message_id,omitempty"`
+	CreatedAt        time.Time       `json:"created_at"`
 }
 
 type MessageSnapshot struct {
@@ -60,9 +62,11 @@ func toHistoryRecordSnapshots(records []HistoryRecord) []HistoryRecordSnapshot {
 			Message: MessageSnapshot{
 				Content: record.Message.Content,
 			},
-			Sequence:  record.Sequence,
-			Source:    record.Source,
-			CreatedAt: record.CreatedAt,
+			Sequence:         record.Sequence,
+			Source:           record.Source,
+			SourceJobID:      record.SourceJobID,
+			ReplyToMessageID: record.ReplyToMessageID,
+			CreatedAt:        record.CreatedAt,
 		}
 	}
 
@@ -79,9 +83,11 @@ func restoreHistoryRecords(records []HistoryRecordSnapshot) []HistoryRecord {
 			Message: Message{
 				Content: record.Message.Content,
 			},
-			Sequence:  record.Sequence,
-			Source:    record.Source,
-			CreatedAt: record.CreatedAt,
+			Sequence:         record.Sequence,
+			Source:           record.Source,
+			SourceJobID:      record.SourceJobID,
+			ReplyToMessageID: record.ReplyToMessageID,
+			CreatedAt:        record.CreatedAt,
 		}
 	}
 

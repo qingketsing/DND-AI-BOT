@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -18,9 +17,9 @@ const (
 
 // AsyncMessageService 负责异步消息入队和状态查询。
 type AsyncMessageService struct {
-	sessions  repository.SessionRepository
-	jobs      repository.MessageJobRepository
-	publisher queue.MessageJobPublisher
+	sessions      repository.SessionRepository
+	jobs          repository.MessageJobRepository
+	asyncEnqueuer repository.AsyncMessageEnqueueRepository
 }
 
 // EnqueueMessageInput 定义异步消息提交所需输入。
@@ -61,20 +60,22 @@ type MessageJobStatusResult struct {
 
 // AssistantReplyResult 定义异步消息的 assistant 回复。
 type AssistantReplyResult struct {
-	MessageID string
-	Content   string
+	MessageID        string
+	Content          string
+	ReplyToMessageID string
+	SourceJobID      string
 }
 
 // NewAsyncMessageService 创建异步消息服务。
 func NewAsyncMessageService(
 	sessions repository.SessionRepository,
 	jobs repository.MessageJobRepository,
-	publisher queue.MessageJobPublisher,
 ) *AsyncMessageService {
+	asyncEnqueuer, _ := sessions.(repository.AsyncMessageEnqueueRepository)
 	return &AsyncMessageService{
-		sessions:  sessions,
-		jobs:      jobs,
-		publisher: publisher,
+		sessions:      sessions,
+		jobs:          jobs,
+		asyncEnqueuer: asyncEnqueuer,
 	}
 }
 
@@ -84,8 +85,8 @@ func (s *AsyncMessageService) EnqueueMessage(ctx context.Context, userID string,
 	if content == "" || strings.TrimSpace(userID) == "" || strings.TrimSpace(userName) == "" {
 		return nil, ErrInvalidMessage
 	}
-	if s.publisher == nil {
-		return nil, errors.New("message publisher is not configured")
+	if s.asyncEnqueuer == nil {
+		return nil, fmt.Errorf("async message enqueue repository is not configured")
 	}
 
 	session, err := s.getSessionForUser(ctx, userID, input.SessionID)
@@ -97,9 +98,6 @@ func (s *AsyncMessageService) EnqueueMessage(ctx context.Context, userID string,
 		ID:   strings.TrimSpace(userID),
 		Name: strings.TrimSpace(userName),
 	}, content, now)
-	if err := s.sessions.Save(ctx, session); err != nil {
-		return nil, err
-	}
 
 	job := model.MessageJob{
 		ID:           generateMessageJobID(now),
@@ -113,9 +111,6 @@ func (s *AsyncMessageService) EnqueueMessage(ctx context.Context, userID string,
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
-	if err := s.jobs.Create(ctx, job); err != nil {
-		return nil, err
-	}
 
 	payload := queue.MessageJobPayload{
 		JobID:     job.ID,
@@ -125,8 +120,21 @@ func (s *AsyncMessageService) EnqueueMessage(ctx context.Context, userID string,
 		Attempt:   1,
 		QueuedAt:  now,
 	}
-	if err := s.publisher.Publish(ctx, payload); err != nil {
-		_ = s.jobs.MarkFailed(ctx, job.ID, now, "queue_publish_failed", err.Error())
+	payloadJSON, err := queue.EncodeMessageJobPayload(payload)
+	if err != nil {
+		return nil, err
+	}
+	event := model.OutboxEvent{
+		ID:            generateOutboxEventID(now),
+		AggregateType: "message_job",
+		AggregateID:   job.ID,
+		EventType:     "message_job_queued",
+		PayloadJSON:   payloadJSON,
+		Status:        model.OutboxEventPending,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	if err := s.asyncEnqueuer.EnqueueAsyncMessage(ctx, session, job, event); err != nil {
 		return nil, err
 	}
 
@@ -184,6 +192,10 @@ func generateMessageJobID(now time.Time) string {
 	return fmt.Sprintf("job-%d", now.UnixNano())
 }
 
+func generateOutboxEventID(now time.Time) string {
+	return fmt.Sprintf("outbox-%d", now.UnixNano())
+}
+
 func toMessageJobStatusResult(job model.MessageJob) MessageJobStatusResult {
 	return MessageJobStatusResult{
 		ID:               job.ID,
@@ -212,21 +224,16 @@ func jobStatusToResponseStatus(status model.MessageJobStatus) string {
 }
 
 func assistantReplyForMessage(session model.Session, messageID string) *AssistantReplyResult {
-	for index, record := range session.History {
-		if record.ID != messageID {
+	for _, record := range session.History {
+		if record.Source != model.MessageSourceAgent || record.ReplyToMessageID != messageID {
 			continue
 		}
-		for nextIndex := index + 1; nextIndex < len(session.History); nextIndex++ {
-			nextRecord := session.History[nextIndex]
-			if nextRecord.Source != model.MessageSourceAgent {
-				continue
-			}
-			return &AssistantReplyResult{
-				MessageID: nextRecord.ID,
-				Content:   nextRecord.Message.Content,
-			}
+		return &AssistantReplyResult{
+			MessageID:        record.ID,
+			Content:          record.Message.Content,
+			ReplyToMessageID: record.ReplyToMessageID,
+			SourceJobID:      record.SourceJobID,
 		}
-		return nil
 	}
 	return nil
 }

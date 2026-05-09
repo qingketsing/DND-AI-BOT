@@ -27,7 +27,6 @@ import (
 	httpHandler "DND-AI-BOT/internal/transport/http/handler"
 	httpMiddleware "DND-AI-BOT/internal/transport/http/middleware"
 	"DND-AI-BOT/internal/transport/http/router"
-	"DND-AI-BOT/internal/worker"
 )
 
 // App 负责承载应用初始化后的根 HTTP handler。
@@ -185,20 +184,7 @@ func NewApp(deps *bootstrap.RuntimeDependencies, options ...AppOption) (*App, er
 			return nil, bootstrap.ErrMissingAsyncMessageDependencies
 		}
 		messageJobRepository := postgresstore.NewPGMessageJobStore(deps.DB)
-		sessionLock := worker.NewRedisSessionLock(deps.RedisClient)
-		processor := worker.NewMessageJobProcessor(
-			sessionRepository,
-			messageJobRepository,
-			sessionLock,
-			agentService,
-		)
-		publisher := newInProcessAsyncMessagePublisher(
-			processor,
-			asyncMessageConfig.WorkerCount,
-			asyncMessageConfig.QueueBuffer,
-			asyncMessageConfig.RetryDelay,
-		)
-		asyncMessageService = service.NewAsyncMessageService(sessionRepository, messageJobRepository, publisher)
+		asyncMessageService = service.NewAsyncMessageService(sessionRepository, messageJobRepository)
 	}
 	sessionService.SetMemoryRefresher(sessionMemoryRefresher)
 	sessionDeleteCleaners := make([]service.SessionDeleteCleaner, 0, 3)

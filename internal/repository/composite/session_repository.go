@@ -45,6 +45,17 @@ func (r *CompositeSessionRepository) Save(ctx context.Context, session *model.Se
 	return nil
 }
 
+// EnqueueAsyncMessage 在 PostgreSQL 真相源中事务化写入 session、job 与 outbox，并失效缓存。
+func (r *CompositeSessionRepository) EnqueueAsyncMessage(ctx context.Context, session *model.Session, job model.MessageJob, event model.OutboxEvent) error {
+	if err := r.store.EnqueueAsyncMessage(ctx, session, job, event); err != nil {
+		return err
+	}
+	if r.cache != nil {
+		_ = r.cache.Delete(ctx, session.ID)
+	}
+	return nil
+}
+
 // Load 优先读取 Redis，miss 后单飞回源 PostgreSQL，并在成功后回填缓存。
 func (r *CompositeSessionRepository) Load(ctx context.Context, sessionID string) (*model.Session, error) {
 	if r.cache != nil {

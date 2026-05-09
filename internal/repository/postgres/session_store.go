@@ -9,6 +9,7 @@ import (
 // SessionStore 定义 PostgreSQL 真相源需要实现的会话存取能力。
 type SessionStore interface {
 	UpsertSession(ctx context.Context, session *model.Session) error
+	EnqueueAsyncMessage(ctx context.Context, session *model.Session, job model.MessageJob, event model.OutboxEvent) error
 	GetSession(ctx context.Context, sessionID string) (*model.Session, error)
 	ListSessionsByUserID(ctx context.Context, userID string) ([]*model.Session, error)
 	DeleteSession(ctx context.Context, sessionID string) error

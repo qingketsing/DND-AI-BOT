@@ -2,7 +2,6 @@ package memory
 
 import (
 	"context"
-	"sync"
 	"time"
 
 	"DND-AI-BOT/internal/model"
@@ -11,16 +10,13 @@ import (
 
 // MessageJobRepository 在内存中保存异步消息任务状态。
 type MessageJobRepository struct {
-	mu           sync.RWMutex
-	jobs         map[string]model.MessageJob
-	messageToJob map[string]string
+	asyncData *asyncMessageData
 }
 
 // NewMessageJobRepository 创建空的内存消息任务仓库。
 func NewMessageJobRepository() *MessageJobRepository {
 	return &MessageJobRepository{
-		jobs:         make(map[string]model.MessageJob),
-		messageToJob: make(map[string]string),
+		asyncData: newAsyncMessageData(),
 	}
 }
 
@@ -30,21 +26,21 @@ func (r *MessageJobRepository) Create(ctx context.Context, job model.MessageJob)
 		return ErrEmptySessionID
 	}
 
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.asyncData.mu.Lock()
+	defer r.asyncData.mu.Unlock()
 
-	r.jobs[job.ID] = cloneMessageJob(job)
-	r.messageToJob[job.MessageID] = job.ID
+	r.asyncData.jobs[job.ID] = cloneMessageJob(job)
+	r.asyncData.messageToJob[job.MessageID] = job.ID
 	return nil
 }
 
 func (r *MessageJobRepository) GetByID(ctx context.Context, jobID string) (*model.MessageJob, error) {
 	_ = ctx
 
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	r.asyncData.mu.RLock()
+	defer r.asyncData.mu.RUnlock()
 
-	job, ok := r.jobs[jobID]
+	job, ok := r.asyncData.jobs[jobID]
 	if !ok {
 		return nil, repository.ErrMessageJobNotFound
 	}
@@ -55,14 +51,14 @@ func (r *MessageJobRepository) GetByID(ctx context.Context, jobID string) (*mode
 func (r *MessageJobRepository) GetByMessageID(ctx context.Context, messageID string) (*model.MessageJob, error) {
 	_ = ctx
 
-	r.mu.RLock()
-	jobID, ok := r.messageToJob[messageID]
+	r.asyncData.mu.RLock()
+	jobID, ok := r.asyncData.messageToJob[messageID]
 	if !ok {
-		r.mu.RUnlock()
+		r.asyncData.mu.RUnlock()
 		return nil, repository.ErrMessageJobNotFound
 	}
-	job := r.jobs[jobID]
-	r.mu.RUnlock()
+	job := r.asyncData.jobs[jobID]
+	r.asyncData.mu.RUnlock()
 
 	cloned := cloneMessageJob(job)
 	return &cloned, nil
@@ -115,15 +111,15 @@ func (r *MessageJobRepository) IncrementAttempt(ctx context.Context, jobID strin
 func (r *MessageJobRepository) update(ctx context.Context, jobID string, mutate func(*model.MessageJob)) error {
 	_ = ctx
 
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.asyncData.mu.Lock()
+	defer r.asyncData.mu.Unlock()
 
-	job, ok := r.jobs[jobID]
+	job, ok := r.asyncData.jobs[jobID]
 	if !ok {
 		return repository.ErrMessageJobNotFound
 	}
 	mutate(&job)
-	r.jobs[jobID] = cloneMessageJob(job)
+	r.asyncData.jobs[jobID] = cloneMessageJob(job)
 	return nil
 }
 

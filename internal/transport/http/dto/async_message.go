@@ -38,8 +38,10 @@ type MessageJobResponse struct {
 
 // AssistantReplyRecord 定义 assistant 回复响应。
 type AssistantReplyRecord struct {
-	MessageID string `json:"message_id"`
-	Content   string `json:"content"`
+	MessageID        string `json:"message_id"`
+	Content          string `json:"content"`
+	ReplyToMessageID string `json:"reply_to_message_id"`
+	SourceJobID      string `json:"source_job_id"`
 }
 
 func ToEnqueueMessageResponse(result *service.EnqueueMessageResult) EnqueueMessageResponse {
@@ -70,8 +72,10 @@ func ToMessageStatusResponse(result *service.MessageStatusResult) MessageStatusR
 	}
 	if result.AssistantReply != nil {
 		response.AssistantReply = &AssistantReplyRecord{
-			MessageID: result.AssistantReply.MessageID,
-			Content:   result.AssistantReply.Content,
+			MessageID:        result.AssistantReply.MessageID,
+			Content:          result.AssistantReply.Content,
+			ReplyToMessageID: result.AssistantReply.ReplyToMessageID,
+			SourceJobID:      result.AssistantReply.SourceJobID,
 		}
 	}
 	return response

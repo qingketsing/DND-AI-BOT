@@ -523,6 +523,13 @@ func (c *fakePGConn) QueryContext(ctx context.Context, query string, args []driv
 			return events[i].CreatedAt.Before(events[j].CreatedAt)
 		})
 		return outboxEventRows(events, limit), nil
+	case strings.Contains(query, "FROM session_messages") && strings.Contains(query, "user_name") && strings.Contains(query, "source_job_id"):
+		sessionID := args[0].Value.(string)
+		session, ok := c.state.gameSessions[sessionID]
+		if !ok {
+			return &fakeRows{cols: []string{"id", "user_id", "user_name", "content", "sequence", "source", "source_job_id", "reply_to_message_id", "created_at"}}, nil
+		}
+		return historyRowsWithAsync(session.History, c.state.messageAsync), nil
 	case strings.Contains(query, "FROM session_messages") && strings.Contains(query, "source_job_id"):
 		sessionID := args[0].Value.(string)
 		rows := &fakeRows{
@@ -719,6 +726,42 @@ func historyRows(history []model.HistoryRecord) driver.Rows {
 			string(record.Source),
 			record.CreatedAt,
 		})
+	}
+	return rows
+}
+
+func historyRowsWithAsync(history []model.HistoryRecord, async map[string]fakeSessionMessageAsyncFields) driver.Rows {
+	rows := &fakeRows{
+		cols: []string{"id", "user_id", "user_name", "content", "sequence", "source", "source_job_id", "reply_to_message_id", "created_at"},
+	}
+	for _, record := range history {
+		asyncFields := async[record.ID]
+		row := []driver.Value{
+			record.ID,
+			record.User.ID,
+			record.User.Name,
+			record.Message.Content,
+			record.Sequence,
+			string(record.Source),
+			nil,
+			nil,
+			record.CreatedAt,
+		}
+		sourceJobID := record.SourceJobID
+		if sourceJobID == "" {
+			sourceJobID = asyncFields.SourceJobID
+		}
+		replyToMessageID := record.ReplyToMessageID
+		if replyToMessageID == "" {
+			replyToMessageID = asyncFields.ReplyToMessageID
+		}
+		if sourceJobID != "" {
+			row[6] = sourceJobID
+		}
+		if replyToMessageID != "" {
+			row[7] = replyToMessageID
+		}
+		rows.data = append(rows.data, row)
 	}
 	return rows
 }

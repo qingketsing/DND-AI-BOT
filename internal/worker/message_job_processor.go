@@ -127,7 +127,13 @@ func (p *MessageJobProcessor) ProcessMessageJob(ctx context.Context, payload que
 		return err
 	}
 
-	session.AppendAgentMessage(model.SessionUser{ID: "agent", Name: "DM Agent"}, reply.Reply, p.now())
+	session.AppendAssistantReply(
+		model.SessionUser{ID: "agent", Name: "DM Agent"},
+		reply.Reply,
+		payload.MessageID,
+		payload.JobID,
+		p.now(),
+	)
 	if err := p.sessions.Save(ctx, session); err != nil {
 		_ = p.jobs.MarkRetryableFailed(ctx, payload.JobID, p.now(), "session_save_failed", err.Error())
 		return err

@@ -97,6 +97,24 @@ func TestSessionRepositorySaveWritesStoreAndDeletesCache(t *testing.T) {
 	}
 }
 
+func TestSessionRepositoryEnqueueAsyncMessageWritesStoreAndDeletesCache(t *testing.T) {
+	session := model.NewSession("session-1", "user-1", model.ChannelWeb, time.Now().UTC())
+	cache := &fakeSessionCache{}
+	store := &fakeSessionStore{}
+	repo := NewCompositeSessionRepository(store, cache, CachePolicy{})
+
+	err := repo.EnqueueAsyncMessage(context.Background(), session, model.MessageJob{ID: "job-1"}, model.OutboxEvent{ID: "outbox-1"})
+	if err != nil {
+		t.Fatalf("expected enqueue async message to succeed, got %v", err)
+	}
+	if store.enqueueCalls != 1 {
+		t.Fatalf("expected store enqueue to be called once, got %d", store.enqueueCalls)
+	}
+	if cache.deleteCalls != 1 {
+		t.Fatalf("expected cache delete to be called once, got %d", cache.deleteCalls)
+	}
+}
+
 func TestSessionRepositoryListByUserIDDelegatesToStore(t *testing.T) {
 	session := model.NewSession("session-1", "user-1", model.ChannelWeb, time.Now().UTC())
 	store := &fakeSessionStore{listSessions: []*model.Session{session}}
@@ -137,10 +155,12 @@ type fakeSessionStore struct {
 	listErr      error
 	deleteErr    error
 	upsertErr    error
+	enqueueErr   error
 	getCalls     int
 	listCalls    int
 	deleteCalls  int
 	upsertCalls  int
+	enqueueCalls int
 }
 
 func (f *fakeSessionStore) UpsertSession(ctx context.Context, session *model.Session) error {
@@ -149,6 +169,17 @@ func (f *fakeSessionStore) UpsertSession(ctx context.Context, session *model.Ses
 		return f.upsertErr
 	}
 	f.session = session
+	return nil
+}
+
+func (f *fakeSessionStore) EnqueueAsyncMessage(ctx context.Context, session *model.Session, job model.MessageJob, event model.OutboxEvent) error {
+	f.enqueueCalls++
+	if f.enqueueErr != nil {
+		return f.enqueueErr
+	}
+	f.session = session
+	_ = job
+	_ = event
 	return nil
 }
 

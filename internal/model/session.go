@@ -33,12 +33,14 @@ type Session struct {
 
 // 历史记录包含用户体，消息体，序号（防止由于时间戳导致的和系统输出的一些信息顺序错乱），来源
 type HistoryRecord struct {
-	ID        string        `json:"id"`
-	User      SessionUser   `json:"user"`
-	Message   Message       `json:"message"`
-	Sequence  int64         `json:"sequence"`
-	Source    MessageSource `json:"source"`
-	CreatedAt time.Time     `json:"created_at"`
+	ID               string        `json:"id"`
+	User             SessionUser   `json:"user"`
+	Message          Message       `json:"message"`
+	Sequence         int64         `json:"sequence"`
+	Source           MessageSource `json:"source"`
+	SourceJobID      string        `json:"source_job_id,omitempty"`
+	ReplyToMessageID string        `json:"reply_to_message_id,omitempty"`
+	CreatedAt        time.Time     `json:"created_at"`
 }
 
 // SessionUser is the lightweight user snapshot stored in session history.
@@ -80,6 +82,15 @@ func (s *Session) AppendUserMessage(user SessionUser, content string, now time.T
 // 在会话历史记录中加入新的Agent消息记录
 func (s *Session) AppendAgentMessage(user SessionUser, content string, now time.Time) HistoryRecord {
 	record := s.newRecord(MessageSourceAgent, user, content, now)
+	s.appendRecord(record)
+	return record
+}
+
+// 在会话历史记录中加入新的 assistant 回复，并显式记录关联的用户消息和任务。
+func (s *Session) AppendAssistantReply(user SessionUser, content string, replyToMessageID string, sourceJobID string, now time.Time) HistoryRecord {
+	record := s.newRecord(MessageSourceAgent, user, content, now)
+	record.ReplyToMessageID = replyToMessageID
+	record.SourceJobID = sourceJobID
 	s.appendRecord(record)
 	return record
 }

@@ -13,3 +13,8 @@ type SessionRepository interface {
 	ListByUserID(ctx context.Context, userID string) ([]*model.Session, error)
 	Delete(ctx context.Context, sessionID string) error
 }
+
+// AsyncMessageEnqueueRepository 定义异步消息入队的事务化持久化契约。
+type AsyncMessageEnqueueRepository interface {
+	EnqueueAsyncMessage(ctx context.Context, session *model.Session, job model.MessageJob, event model.OutboxEvent) error
+}
