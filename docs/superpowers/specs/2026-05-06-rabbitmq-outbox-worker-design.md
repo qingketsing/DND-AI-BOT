@@ -12,6 +12,30 @@
 
 本设计解决的是**入口并发承载、一致性、恢复能力和可扩展性**，不直接解决单条消息本身耗时较长的问题。
 
+## 当前实现进度
+
+截至当前版本，以下内容已经落地：
+
+- `POST /sessions/{id}/messages -> 202`
+- `GET /messages/{id}`
+- `message_jobs`
+- `outbox_events`
+- `reply_to_message_id / source_job_id`
+- 事务化 `message + message_job + outbox_event` 入队路径
+
+已完成的提交包括：
+
+- `4e752b3 update: Add outbox persistence model`
+- `5e3b8d8 update: Add transactional outbox enqueue path`
+
+当前仍处于“Outbox 写入已经接通，但真正的 RabbitMQ 发布与独立 worker 尚未接入”的阶段。也就是说：
+
+- app 侧已经不再直接 publish，而是先写 outbox
+- Outbox Dispatcher 还未真正实现
+- RabbitMQ publisher / consumer 还未正式接入
+- 独立 `dnd-worker` 进程还未落地
+- Redis 锁 heartbeat 续约和 retry / stale recovery 仍在后续任务中
+
 ## 当前问题
 
 当前异步消息骨架已经具备：
@@ -39,8 +63,15 @@
    - `retryable_failed` 只是状态，不构成可靠重试链路
 
 5. **reply 关联方式脆弱**
-   - 当前依赖“用户消息后面的第一条 agent message”
+   - 旧实现依赖“用户消息后面的第一条 agent message”
    - 遇到重试、系统消息、重复回复时不可靠
+
+其中第 1 条和第 5 条已在当前版本得到部分修复：
+
+- 第 1 条已通过事务化 `message + message_job + outbox_event` 入队解决
+- 第 5 条已通过 `reply_to_message_id / source_job_id` 显式关联解决
+
+其余问题仍需后续任务继续完成
 
 如果继续在现有骨架上直接接 RabbitMQ 而不补足上述点，系统会从“可跑”变成“更容易出错”。
 

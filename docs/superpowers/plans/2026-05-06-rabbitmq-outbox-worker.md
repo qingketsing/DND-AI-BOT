@@ -8,6 +8,22 @@
 
 **Tech Stack:** Go, PostgreSQL, RabbitMQ, Redis, 现有 Agent Runtime, 现有 HTTP Handler / DTO / Service / Repository 模式
 
+## 当前进度
+
+- Task 1 已完成并提交：`4e752b3 update: Add outbox persistence model`
+- Task 2 已完成并提交：`5e3b8d8 update: Add transactional outbox enqueue path`
+- 当前已具备：
+  - `outbox_events` 数据模型、migration 与 Postgres Repository
+  - `message_jobs` 扩展状态约束
+  - `session_messages` 的 `reply_to_message_id / source_job_id` 字段与 assistant 唯一索引
+  - `AsyncMessageService` 的事务化 `message + message_job + outbox_event` 入队路径
+  - `GET /messages/{id}` 基于显式 reply 关联查询状态
+- 当前尚未完成：
+  - Outbox Dispatcher 真正发布 RabbitMQ
+  - 独立 `dnd-worker` 进程
+  - Redis 锁 heartbeat 续约
+  - retry / stale job recovery 闭环
+
 ---
 
 ### Task 1: Outbox 数据模型与 Repository
@@ -19,12 +35,20 @@
 - Create: `internal/repository/postgres/outbox_event_store_impl.go`
 - Create: `internal/repository/postgres/outbox_event_store_test.go`
 - Modify: `migrations/013_create_outbox_events.sql`
+- Modify: `migrations/012_create_message_jobs.sql`
+- Modify: `migrations/00x_messages_*.sql`（按现有迁移编号新增 message 约束迁移）
 - Modify: `internal/repository/errors.go`
 
-- [ ] **Step 1: 写 outbox migration 和 repository 的失败测试**
+- [x] **Step 1: 写 outbox migration 和 repository 的失败测试**
 
 覆盖：
 - `outbox_events` 表结构
+- `messages` 表新增：
+  - `source_job_id`
+  - `reply_to_message_id`
+- assistant message 唯一约束：
+  - `UNIQUE(reply_to_message_id) WHERE role = 'assistant'`
+  - `UNIQUE(source_job_id) WHERE role = 'assistant'`
 - `pending / published / failed` 状态读取
 - `GetPending`、`MarkPublished`、`MarkFailedAttempt`
 
@@ -51,7 +75,7 @@ CREATE INDEX idx_outbox_events_aggregate_id
     ON outbox_events(aggregate_id);
 ```
 
-- [ ] **Step 2: 运行失败测试并确认 Red**
+- [x] **Step 2: 运行失败测试并确认 Red**
 
 Run:
 
@@ -59,7 +83,7 @@ Run:
 GOCACHE=/tmp/go-build go test ./internal/repository/postgres -run 'TestOutboxEvent|TestMigrations'
 ```
 
-- [ ] **Step 3: 实现 Outbox 模型与 Repository**
+- [x] **Step 3: 实现 Outbox 模型与 Repository**
 
 最小接口：
 
@@ -72,7 +96,7 @@ type OutboxEventRepository interface {
 }
 ```
 
-- [ ] **Step 4: 重新运行测试并确认 Green**
+- [x] **Step 4: 重新运行测试并确认 Green**
 
 Run:
 
@@ -80,13 +104,12 @@ Run:
 GOCACHE=/tmp/go-build go test ./internal/repository/postgres -run 'TestOutboxEvent|TestMigrations'
 ```
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
-```bash
-git add internal/model/outbox_event.go internal/repository/outbox_event.go
-git add internal/repository/postgres/outbox_event_store.go internal/repository/postgres/outbox_event_store_impl.go
-git add internal/repository/postgres/outbox_event_store_test.go migrations/013_create_outbox_events.sql
-git commit -m "update: Add outbox persistence model"
+已完成提交：
+
+```text
+4e752b3 update: Add outbox persistence model
 ```
 
 ### Task 2: 事务化异步入队与 reply 显式关联
@@ -100,7 +123,7 @@ git commit -m "update: Add outbox persistence model"
 - Modify: `internal/transport/http/dto/async_message.go`
 - Modify: `internal/transport/http/handler/session_handler_test.go`
 
-- [ ] **Step 1: 写失败测试，覆盖事务内写入与 reply 关联字段**
+- [x] **Step 1: 写失败测试，覆盖事务内写入与 reply 关联字段**
 
 覆盖：
 - 一次入队同时持久化：
@@ -109,8 +132,9 @@ git commit -m "update: Add outbox persistence model"
   - `outbox_event`
 - publish 从 service 中移除
 - `assistant_reply` 支持 `reply_to_message_id`
+- `assistant_reply` 支持 `source_job_id`
 
-- [ ] **Step 2: 运行失败测试并确认 Red**
+- [x] **Step 2: 运行失败测试并确认 Red**
 
 Run:
 
@@ -118,7 +142,7 @@ Run:
 GOCACHE=/tmp/go-build go test ./internal/service ./internal/transport/http/handler -run 'TestAsyncMessageService|TestSessionHandler'
 ```
 
-- [ ] **Step 3: 实现事务化入队和显式 reply 关联**
+- [x] **Step 3: 实现事务化入队和显式 reply 关联**
 
 要求：
 - `AsyncMessageService.EnqueueMessage()` 不再直接 publish
@@ -126,9 +150,12 @@ GOCACHE=/tmp/go-build go test ./internal/service ./internal/transport/http/handl
   - user message
   - `message_job(status=queued)`
   - `outbox_event(status=pending)`
-- assistant message 增加 `reply_to_message_id`
+- assistant message 增加：
+  - `reply_to_message_id`
+  - `source_job_id`
+- memory 仓储通过共享 async state 支撑真实的 queued job 持久化和状态查询测试
 
-- [ ] **Step 4: 重新运行测试并确认 Green**
+- [x] **Step 4: 重新运行测试并确认 Green**
 
 Run:
 
@@ -136,13 +163,12 @@ Run:
 GOCACHE=/tmp/go-build go test ./internal/service ./internal/transport/http/handler -run 'TestAsyncMessageService|TestSessionHandler'
 ```
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
-```bash
-git add internal/model/session.go internal/service/async_message_service.go internal/service/async_message_service_test.go
-git add internal/repository/message_job.go internal/repository/session.go
-git add internal/transport/http/dto/async_message.go internal/transport/http/handler/session_handler_test.go
-git commit -m "update: Add transactional async message enqueue"
+已完成提交：
+
+```text
+5e3b8d8 update: Add transactional outbox enqueue path
 ```
 
 ### Task 3: RabbitMQ Publisher / Consumer 与 Outbox Dispatcher
@@ -215,7 +241,11 @@ git commit -m "update: Add RabbitMQ and outbox dispatcher"
 - 处理长任务时会启动 heartbeat 续约
 - 续约失败时停止提交最终状态
 - 已完成 job 重复消费时直接退出
-- `reply_to_message_id` 写回正确
+- `reply_to_message_id / source_job_id` 写回正确
+- assistant message 唯一约束冲突会被视为幂等成功：
+  - 重新读取已有 reply
+  - 标记 job 为 `completed`
+  - 正常 ack
 - `published -> processing -> completed`
 - `processing -> retryable_failed`
 
@@ -234,7 +264,8 @@ GOCACHE=/tmp/go-build go test ./internal/worker ./internal/repository/postgres -
 - renew 间隔建议 `30s`
 - 续约失败后不再提交最终状态
 - processor 开始前检查 job 是否已 `completed`
-- 使用 `reply_to_message_id` 而不是“找下一条 agent message”
+- 使用 `reply_to_message_id / source_job_id` 而不是“找下一条 agent message”
+- 数据库唯一约束冲突按幂等成功处理，不按失败处理
 
 - [ ] **Step 4: 重新运行测试并确认 Green**
 
@@ -320,6 +351,7 @@ git commit -m "update: Add standalone async message worker"
 覆盖：
 - `retryable_failed` 能重新进入 `published`
 - stale `processing` job 被回收
+- `session_busy` 按 `retryable_failed` 处理
 - outbox publish 失败会累计 attempt
 - 关键 metrics 会打点
 
@@ -335,6 +367,7 @@ GOCACHE=/tmp/go-build go test ./internal/service ./internal/worker -run 'TestMes
 
 要求：
 - `retryable_failed` 重试最多 `3` 次
+- 每次重试固定 `30s`
 - stale `processing` job 恢复阈值如 `10m`
 - 增加：
   - `outbox_events_pending_total`
