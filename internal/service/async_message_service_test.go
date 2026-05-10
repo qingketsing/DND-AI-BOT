@@ -345,6 +345,13 @@ func (f *fakeAsyncMessageJobRepository) MarkProcessing(ctx context.Context, jobI
 	return nil
 }
 
+func (f *fakeAsyncMessageJobRepository) MarkPublished(ctx context.Context, jobID string, publishedAt time.Time) error {
+	_ = ctx
+	_ = jobID
+	_ = publishedAt
+	return nil
+}
+
 func (f *fakeAsyncMessageJobRepository) MarkCompleted(ctx context.Context, jobID string, finishedAt time.Time, latencyMS int64) error {
 	_ = ctx
 	_ = jobID

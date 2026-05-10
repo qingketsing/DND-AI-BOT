@@ -56,6 +56,15 @@ func (s *PGMessageJobStore) GetByMessageID(ctx context.Context, messageID string
 	`, messageID)
 }
 
+func (s *PGMessageJobStore) MarkPublished(ctx context.Context, jobID string, publishedAt time.Time) error {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE message_jobs
+		SET status = $2, updated_at = $3
+		WHERE id = $1
+	`, jobID, string(model.MessageJobPublished), publishedAt)
+	return mapMessageJobExecResult(result, err)
+}
+
 func (s *PGMessageJobStore) MarkProcessing(ctx context.Context, jobID string, workerID string, startedAt time.Time) error {
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE message_jobs

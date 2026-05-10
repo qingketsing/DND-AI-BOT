@@ -64,6 +64,13 @@ func (r *MessageJobRepository) GetByMessageID(ctx context.Context, messageID str
 	return &cloned, nil
 }
 
+func (r *MessageJobRepository) MarkPublished(ctx context.Context, jobID string, publishedAt time.Time) error {
+	return r.update(ctx, jobID, func(job *model.MessageJob) {
+		job.Status = model.MessageJobPublished
+		job.UpdatedAt = publishedAt
+	})
+}
+
 func (r *MessageJobRepository) MarkProcessing(ctx context.Context, jobID string, workerID string, startedAt time.Time) error {
 	return r.update(ctx, jobID, func(job *model.MessageJob) {
 		job.Status = model.MessageJobProcessing

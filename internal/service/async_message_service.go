@@ -214,6 +214,8 @@ func jobStatusToResponseStatus(status model.MessageJobStatus) string {
 	switch status {
 	case model.MessageJobQueued:
 		return "queued"
+	case model.MessageJobPublished:
+		return "queued"
 	case model.MessageJobProcessing:
 		return "processing"
 	case model.MessageJobCompleted:

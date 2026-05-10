@@ -6,6 +6,7 @@ type MessageJobStatus string
 
 const (
 	MessageJobQueued          MessageJobStatus = "queued"
+	MessageJobPublished       MessageJobStatus = "published"
 	MessageJobProcessing      MessageJobStatus = "processing"
 	MessageJobCompleted       MessageJobStatus = "completed"
 	MessageJobRetryableFailed MessageJobStatus = "retryable_failed"
