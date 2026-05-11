@@ -35,6 +35,9 @@ func main() {
 	}
 	defer deps.DB.Close()
 	defer deps.RedisClient.Close()
+	if deps.RabbitMQCloser != nil {
+		defer deps.RabbitMQCloser.Close()
+	}
 
 	if err := bootstrap.RunEmbeddedMigrations(context.Background(), deps.DB); err != nil {
 		log.Fatal(err)
@@ -44,6 +47,10 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	if err := application.StartBackgrounds(context.Background()); err != nil {
+		log.Fatal(err)
+	}
+	defer application.Close()
 
 	addr := loadHTTPAddrFromEnv()
 	logger.Printf("http server listening on %s", addr)

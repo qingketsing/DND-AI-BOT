@@ -34,6 +34,8 @@ type App struct {
 	Handler                http.Handler
 	AgentService           *service.AgentService
 	AsyncMessageService    *service.AsyncMessageService
+	OutboxDispatcher       *service.OutboxDispatcher
+	OutboxDispatchLoop     *OutboxDispatchLoop
 	AuthService            *service.AuthService
 	SessionService         *service.SessionService
 	GameStateService       *service.GameStateService
@@ -179,12 +181,17 @@ func NewApp(deps *bootstrap.RuntimeDependencies, options ...AppOption) (*App, er
 	)
 	sessionService := service.NewSessionService(sessionRepository, agentService)
 	var asyncMessageService *service.AsyncMessageService
+	var outboxDispatcher *service.OutboxDispatcher
+	var outboxDispatchLoop *OutboxDispatchLoop
 	if asyncMessageConfig.Enabled {
-		if deps == nil || deps.DB == nil || deps.RedisClient == nil {
+		if deps == nil || deps.DB == nil || deps.RedisClient == nil || deps.RabbitMQPublisher == nil {
 			return nil, bootstrap.ErrMissingAsyncMessageDependencies
 		}
 		messageJobRepository := postgresstore.NewPGMessageJobStore(deps.DB)
 		asyncMessageService = service.NewAsyncMessageService(sessionRepository, messageJobRepository)
+		outboxRepository := postgresstore.NewPGOutboxEventStore(deps.DB)
+		outboxDispatcher = service.NewOutboxDispatcher(outboxRepository, messageJobRepository, deps.RabbitMQPublisher, deps.RabbitMQConfig.DispatchBatchSize)
+		outboxDispatchLoop = NewOutboxDispatchLoop(outboxDispatcher, deps.RabbitMQConfig.DispatchInterval())
 	}
 	sessionService.SetMemoryRefresher(sessionMemoryRefresher)
 	sessionDeleteCleaners := make([]service.SessionDeleteCleaner, 0, 3)
@@ -233,6 +240,8 @@ func NewApp(deps *bootstrap.RuntimeDependencies, options ...AppOption) (*App, er
 		),
 		AgentService:           agentService,
 		AsyncMessageService:    asyncMessageService,
+		OutboxDispatcher:       outboxDispatcher,
+		OutboxDispatchLoop:     outboxDispatchLoop,
 		AuthService:            authService,
 		SessionService:         sessionService,
 		GameStateService:       gameStateService,
@@ -241,6 +250,21 @@ func NewApp(deps *bootstrap.RuntimeDependencies, options ...AppOption) (*App, er
 		SessionMemoryRefresher: sessionMemoryRefresher,
 		KnowledgeWarmupService: knowledgeWarmupService,
 	}, nil
+}
+
+func (a *App) StartBackgrounds(ctx context.Context) error {
+	if a == nil || a.OutboxDispatchLoop == nil {
+		return nil
+	}
+	return a.OutboxDispatchLoop.Start(ctx)
+}
+
+func (a *App) Close() error {
+	if a == nil || a.OutboxDispatchLoop == nil {
+		return nil
+	}
+	a.OutboxDispatchLoop.Stop()
+	return nil
 }
 
 type appRuntimeRunnerInput struct {

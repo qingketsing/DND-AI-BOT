@@ -1,11 +1,15 @@
 package app
 
 import (
+	"context"
+	"database/sql"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"DND-AI-BOT/internal/bootstrap"
+	"DND-AI-BOT/internal/queue"
+	goredis "github.com/redis/go-redis/v9"
 )
 
 func TestNewAppBuildsCoreServices(t *testing.T) {
@@ -68,6 +72,54 @@ func TestNewAppRejectsAsyncMessageModeWithoutPersistentDependencies(t *testing.T
 	if err == nil {
 		t.Fatal("expected async message mode without db and redis to fail")
 	}
+}
+
+func TestNewAppRejectsAsyncMessageModeWithoutRabbitMQPublisher(t *testing.T) {
+	t.Setenv("MODEL_PROVIDER", "mock")
+	t.Setenv("MODEL_NAME", "")
+	t.Setenv("MODEL_API_KEY", "")
+	t.Setenv("MODEL_BASE_URL", "")
+	t.Setenv("MODEL_TIMEOUT_SECONDS", "")
+	t.Setenv("ASYNC_MESSAGE_ENABLED", "true")
+
+	_, err := NewApp(&bootstrap.RuntimeDependencies{
+		DB:          &sql.DB{},
+		RedisClient: goredis.NewClient(&goredis.Options{Addr: "127.0.0.1:0"}),
+	})
+	if err == nil {
+		t.Fatal("expected async message mode without rabbitmq publisher to fail")
+	}
+}
+
+func TestNewAppBuildsOutboxDispatcherWhenAsyncMessageModeEnabled(t *testing.T) {
+	t.Setenv("MODEL_PROVIDER", "mock")
+	t.Setenv("MODEL_NAME", "")
+	t.Setenv("MODEL_API_KEY", "")
+	t.Setenv("MODEL_BASE_URL", "")
+	t.Setenv("MODEL_TIMEOUT_SECONDS", "")
+	t.Setenv("ASYNC_MESSAGE_ENABLED", "true")
+
+	application, err := NewApp(&bootstrap.RuntimeDependencies{
+		DB:                &sql.DB{},
+		RedisClient:       goredis.NewClient(&goredis.Options{Addr: "127.0.0.1:0"}),
+		RabbitMQPublisher: &fakeAppMessageJobPublisher{},
+	})
+	if err != nil {
+		t.Fatalf("expected async app build to succeed, got %v", err)
+	}
+	if application.AsyncMessageService == nil {
+		t.Fatal("expected async message service to be configured")
+	}
+	if application.OutboxDispatcher == nil {
+		t.Fatal("expected outbox dispatcher to be configured")
+	}
+	if application.OutboxDispatchLoop == nil {
+		t.Fatal("expected outbox dispatch loop to be configured")
+	}
+	if err := application.StartBackgrounds(context.Background()); err != nil {
+		t.Fatalf("expected background start to succeed, got %v", err)
+	}
+	defer application.Close()
 }
 
 func TestNewAppProtectsAuthMeRoute(t *testing.T) {
@@ -159,4 +211,12 @@ func TestNewAppProtectsMetricsWhenRemoteAddressIsNotAllowed(t *testing.T) {
 	if recorder.Code != http.StatusForbidden {
 		t.Fatalf("expected status %d, got %d", http.StatusForbidden, recorder.Code)
 	}
+}
+
+type fakeAppMessageJobPublisher struct{}
+
+func (f *fakeAppMessageJobPublisher) Publish(ctx context.Context, payload queue.MessageJobPayload) error {
+	_ = ctx
+	_ = payload
+	return nil
 }

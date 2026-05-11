@@ -4,9 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"io"
 	"os"
 	"time"
 
+	"DND-AI-BOT/internal/queue"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	goredis "github.com/redis/go-redis/v9"
 )
@@ -18,8 +20,11 @@ var (
 
 // RuntimeDependencies 统一承载应用启动后可复用的外部依赖。
 type RuntimeDependencies struct {
-	DB          *sql.DB
-	RedisClient *goredis.Client
+	DB                *sql.DB
+	RedisClient       *goredis.Client
+	RabbitMQPublisher queue.MessageJobPublisher
+	RabbitMQCloser    io.Closer
+	RabbitMQConfig    RabbitMQConfig
 }
 
 // OpenPostgresFromEnv 从环境变量读取 DSN 并建立 PostgreSQL 连接。
@@ -77,8 +82,25 @@ func OpenRuntimeDependencies() (*RuntimeDependencies, error) {
 		return nil, err
 	}
 
+	rabbitMQConfig := RabbitMQConfig{}
+	var (
+		rabbitMQPublisher queue.MessageJobPublisher
+		rabbitMQCloser    io.Closer
+	)
+	if LoadAsyncMessageConfigFromEnv().Enabled {
+		rabbitMQConfig, rabbitMQPublisher, rabbitMQCloser, err = OpenRabbitMQPublisherFromEnv()
+		if err != nil {
+			db.Close()
+			redisClient.Close()
+			return nil, err
+		}
+	}
+
 	return &RuntimeDependencies{
-		DB:          db,
-		RedisClient: redisClient,
+		DB:                db,
+		RedisClient:       redisClient,
+		RabbitMQPublisher: rabbitMQPublisher,
+		RabbitMQCloser:    rabbitMQCloser,
+		RabbitMQConfig:    rabbitMQConfig,
 	}, nil
 }
