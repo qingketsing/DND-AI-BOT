@@ -6,7 +6,10 @@ import (
 )
 
 type fakeLockClient struct {
-	values map[string]string
+	values              map[string]string
+	expireCalls         int
+	compareAndExpireErr error
+	expireSignal        chan struct{}
 }
 
 func newFakeLockClient() *fakeLockClient {
@@ -22,7 +25,14 @@ func (c *fakeLockClient) SetNX(ctx context.Context, key string, value string, tt
 }
 
 func (c *fakeLockClient) CompareAndExpire(ctx context.Context, key string, expected string, ttl time.Duration) (bool, error) {
+	if c.compareAndExpireErr != nil {
+		return false, c.compareAndExpireErr
+	}
 	if value, ok := c.values[key]; ok && value == expected {
+		c.expireCalls++
+		if c.expireSignal != nil {
+			c.expireSignal <- struct{}{}
+		}
 		return true, nil
 	}
 	return false, nil

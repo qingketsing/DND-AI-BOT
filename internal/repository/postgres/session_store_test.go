@@ -68,6 +68,31 @@ func TestPGSessionStoreUpsertPreservesAsyncMessageFields(t *testing.T) {
 	}
 }
 
+func TestPGSessionStoreUpsertAssistantReplyUniqueConflictReturnsIdempotentSuccess(t *testing.T) {
+	state := newFakePGState()
+	db := newFakePGDB(t, state)
+	store := NewPGSessionStore(db)
+
+	now := time.Date(2026, 5, 12, 15, 0, 0, 0, time.UTC)
+	session := model.NewSession("session-conflict", "user-1", model.ChannelWeb, now)
+	userRecord := session.AppendUserMessage(model.SessionUser{ID: "user-1", Name: "Alice"}, "hello", now.Add(time.Second))
+	session.AppendAssistantReply(model.SessionUser{ID: "assistant", Name: "DM"}, "reply-one", userRecord.ID, "job-1", now.Add(2*time.Second))
+	session.AppendAssistantReply(model.SessionUser{ID: "assistant", Name: "DM"}, "reply-two", userRecord.ID, "job-2", now.Add(3*time.Second))
+
+	err := store.UpsertSession(context.Background(), session)
+	if err == nil {
+		t.Fatal("expected unique conflict error, got nil")
+	}
+
+	type idempotentSuccess interface {
+		IdempotentSuccess() bool
+	}
+	var marker idempotentSuccess
+	if !errors.As(err, &marker) || !marker.IdempotentSuccess() {
+		t.Fatalf("expected idempotent success error, got %v", err)
+	}
+}
+
 func TestPGSessionStoreGetSessionReturnsNotFound(t *testing.T) {
 	state := newFakePGState()
 	db := newFakePGDB(t, state)

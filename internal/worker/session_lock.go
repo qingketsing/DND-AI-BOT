@@ -16,6 +16,11 @@ type SessionLock interface {
 	Release(ctx context.Context, sessionID string, jobID string, workerID string) error
 }
 
+const (
+	defaultSessionLockTTL               = 180 * time.Second
+	defaultSessionLockHeartbeatInterval = 30 * time.Second
+)
+
 type sessionLockBackend interface {
 	SetNX(ctx context.Context, key string, value string, ttl time.Duration) (bool, error)
 	CompareAndExpire(ctx context.Context, key string, expected string, ttl time.Duration) (bool, error)
@@ -75,6 +80,65 @@ func (l *RedisSessionLock) Release(ctx context.Context, sessionID string, jobID 
 	}
 	_, err = l.backend.CompareAndDelete(ctx, sessionLockKey(sessionID), payload)
 	return err
+}
+
+func startSessionLockHeartbeat(
+	ctx context.Context,
+	lock SessionLock,
+	sessionID string,
+	jobID string,
+	workerID string,
+	ttl time.Duration,
+	interval time.Duration,
+	tickerFactory func(time.Duration) <-chan time.Time,
+) <-chan error {
+	result := make(chan error, 1)
+	if tickerFactory == nil {
+		tickerFactory = func(interval time.Duration) <-chan time.Time {
+			ticker := time.NewTicker(interval)
+			ch := make(chan time.Time)
+			go func() {
+				defer ticker.Stop()
+				defer close(ch)
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case tick := <-ticker.C:
+						select {
+						case <-ctx.Done():
+							return
+						case ch <- tick:
+						}
+					}
+				}
+			}()
+			return ch
+		}
+	}
+
+	go func() {
+		defer close(result)
+		ticks := tickerFactory(interval)
+		for {
+			select {
+			case <-ctx.Done():
+				result <- nil
+				return
+			case _, ok := <-ticks:
+				if !ok {
+					result <- nil
+					return
+				}
+				if err := lock.Renew(ctx, sessionID, jobID, workerID, ttl); err != nil {
+					result <- err
+					return
+				}
+			}
+		}
+	}()
+
+	return result
 }
 
 func sessionLockKey(sessionID string) string {

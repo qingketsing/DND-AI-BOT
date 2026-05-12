@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"DND-AI-BOT/internal/model"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type fakePGState struct {
@@ -322,10 +323,28 @@ func (c *fakePGConn) ExecContext(ctx context.Context, query string, args []drive
 		job.UpdatedAt = args[1].Value.(time.Time)
 		c.state.messageJobs[jobID] = job
 		return driver.RowsAffected(1), nil
+	case strings.Contains(query, "UPDATE message_jobs") && strings.Contains(query, "SET status = $2, updated_at = $3"):
+		jobID := args[0].Value.(string)
+		job, ok := c.state.messageJobs[jobID]
+		if !ok {
+			return driver.RowsAffected(0), nil
+		}
+		expectedStatus := model.MessageJobStatus(args[3].Value.(string))
+		if job.Status != expectedStatus {
+			return driver.RowsAffected(0), nil
+		}
+		job.Status = model.MessageJobStatus(args[1].Value.(string))
+		job.UpdatedAt = args[2].Value.(time.Time)
+		c.state.messageJobs[jobID] = job
+		return driver.RowsAffected(1), nil
 	case strings.Contains(query, "UPDATE message_jobs") && strings.Contains(query, "worker_id = $3"):
 		jobID := args[0].Value.(string)
 		job, ok := c.state.messageJobs[jobID]
 		if !ok {
+			return driver.RowsAffected(0), nil
+		}
+		expectedStatus := model.MessageJobStatus(args[4].Value.(string))
+		if job.Status != expectedStatus {
 			return driver.RowsAffected(0), nil
 		}
 		startedAt := args[3].Value.(time.Time)
@@ -341,6 +360,10 @@ func (c *fakePGConn) ExecContext(ctx context.Context, query string, args []drive
 		if !ok {
 			return driver.RowsAffected(0), nil
 		}
+		expectedStatus := model.MessageJobStatus(args[4].Value.(string))
+		if job.Status != expectedStatus {
+			return driver.RowsAffected(0), nil
+		}
 		finishedAt := args[2].Value.(time.Time)
 		job.Status = model.MessageJobStatus(args[1].Value.(string))
 		job.FinishedAt = &finishedAt
@@ -352,6 +375,15 @@ func (c *fakePGConn) ExecContext(ctx context.Context, query string, args []drive
 		jobID := args[0].Value.(string)
 		job, ok := c.state.messageJobs[jobID]
 		if !ok {
+			return driver.RowsAffected(0), nil
+		}
+		allowed := map[model.MessageJobStatus]struct{}{
+			model.MessageJobStatus(args[5].Value.(string)): {},
+		}
+		if len(args) > 6 {
+			allowed[model.MessageJobStatus(args[6].Value.(string))] = struct{}{}
+		}
+		if _, ok := allowed[job.Status]; !ok {
 			return driver.RowsAffected(0), nil
 		}
 		finishedAt := args[2].Value.(time.Time)
@@ -435,6 +467,25 @@ func (c *fakePGConn) ExecContext(ctx context.Context, query string, args []drive
 		}
 		if len(args) > 9 && args[9].Value != nil {
 			asyncFields.ReplyToMessageID = args[9].Value.(string)
+		}
+		for messageID, existing := range c.state.messageAsync {
+			if messageID == args[0].Value.(string) {
+				continue
+			}
+			if asyncFields.ReplyToMessageID != "" && existing.ReplyToMessageID == asyncFields.ReplyToMessageID {
+				return nil, &pgconn.PgError{
+					Code:           "23505",
+					ConstraintName: sessionMessagesReplyToConstraint,
+					Message:        "duplicate key value violates unique constraint",
+				}
+			}
+			if asyncFields.SourceJobID != "" && existing.SourceJobID == asyncFields.SourceJobID {
+				return nil, &pgconn.PgError{
+					Code:           "23505",
+					ConstraintName: sessionMessagesSourceJobConstraint,
+					Message:        "duplicate key value violates unique constraint",
+				}
+			}
 		}
 		c.state.messageAsync[args[0].Value.(string)] = asyncFields
 		c.state.gameSessions[sessionID] = session

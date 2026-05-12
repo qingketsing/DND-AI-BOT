@@ -7,6 +7,7 @@ import (
 
 	"DND-AI-BOT/internal/model"
 	"DND-AI-BOT/internal/repository"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type PGSessionStore struct {
@@ -16,6 +17,27 @@ type PGSessionStore struct {
 type sessionMessageAsyncFields struct {
 	sourceJobID      string
 	replyToMessageID string
+}
+
+const (
+	sessionMessagesReplyToConstraint = "uq_session_messages_assistant_reply_to_message_id"
+	sessionMessagesSourceJobConstraint = "uq_session_messages_assistant_source_job_id"
+)
+
+type idempotentSessionMessageConflictError struct {
+	cause error
+}
+
+func (e *idempotentSessionMessageConflictError) Error() string {
+	return e.cause.Error()
+}
+
+func (e *idempotentSessionMessageConflictError) Unwrap() error {
+	return e.cause
+}
+
+func (e *idempotentSessionMessageConflictError) IdempotentSuccess() bool {
+	return true
 }
 
 // NewPGSessionStore 创建基于 database/sql 的 Session PG 存储实现。
@@ -329,7 +351,7 @@ func insertSessionMessageTx(ctx context.Context, tx *sql.Tx, sessionID string, r
 		nullableString(record.ReplyToMessageID),
 		record.CreatedAt,
 	)
-	return err
+	return normalizeSessionMessageWriteError(err)
 }
 
 func insertMessageJobTx(ctx context.Context, tx *sql.Tx, job model.MessageJob) error {
@@ -361,4 +383,18 @@ func nullableString(value string) any {
 		return nil
 	}
 	return value
+}
+
+func normalizeSessionMessageWriteError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		switch pgErr.ConstraintName {
+		case sessionMessagesReplyToConstraint, sessionMessagesSourceJobConstraint:
+			return &idempotentSessionMessageConflictError{cause: err}
+		}
+	}
+	return err
 }

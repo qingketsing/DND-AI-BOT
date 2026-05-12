@@ -60,8 +60,8 @@ func (s *PGMessageJobStore) MarkPublished(ctx context.Context, jobID string, pub
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE message_jobs
 		SET status = $2, updated_at = $3
-		WHERE id = $1
-	`, jobID, string(model.MessageJobPublished), publishedAt)
+		WHERE id = $1 AND status = $4
+	`, jobID, string(model.MessageJobPublished), publishedAt, string(model.MessageJobQueued))
 	return mapMessageJobExecResult(result, err)
 }
 
@@ -69,8 +69,8 @@ func (s *PGMessageJobStore) MarkProcessing(ctx context.Context, jobID string, wo
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE message_jobs
 		SET status = $2, worker_id = $3, started_at = $4, updated_at = $4
-		WHERE id = $1
-	`, jobID, string(model.MessageJobProcessing), workerID, startedAt)
+		WHERE id = $1 AND status = $5
+	`, jobID, string(model.MessageJobProcessing), workerID, startedAt, string(model.MessageJobPublished))
 	return mapMessageJobExecResult(result, err)
 }
 
@@ -78,8 +78,8 @@ func (s *PGMessageJobStore) MarkCompleted(ctx context.Context, jobID string, fin
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE message_jobs
 		SET status = $2, finished_at = $3, latency_ms = $4, updated_at = $3
-		WHERE id = $1
-	`, jobID, string(model.MessageJobCompleted), finishedAt, latencyMS)
+		WHERE id = $1 AND status = $5
+	`, jobID, string(model.MessageJobCompleted), finishedAt, latencyMS, string(model.MessageJobProcessing))
 	return mapMessageJobExecResult(result, err)
 }
 
@@ -87,8 +87,8 @@ func (s *PGMessageJobStore) MarkRetryableFailed(ctx context.Context, jobID strin
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE message_jobs
 		SET status = $2, finished_at = $3, last_error_code = $4, last_error_message = $5, updated_at = $3
-		WHERE id = $1
-	`, jobID, string(model.MessageJobRetryableFailed), finishedAt, errorCode, errorMessage)
+		WHERE id = $1 AND status IN ($6, $7)
+	`, jobID, string(model.MessageJobRetryableFailed), finishedAt, errorCode, errorMessage, string(model.MessageJobPublished), string(model.MessageJobProcessing))
 	return mapMessageJobExecResult(result, err)
 }
 
@@ -96,8 +96,8 @@ func (s *PGMessageJobStore) MarkFailed(ctx context.Context, jobID string, finish
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE message_jobs
 		SET status = $2, finished_at = $3, last_error_code = $4, last_error_message = $5, updated_at = $3
-		WHERE id = $1
-	`, jobID, string(model.MessageJobFailed), finishedAt, errorCode, errorMessage)
+		WHERE id = $1 AND status IN ($6, $7)
+	`, jobID, string(model.MessageJobFailed), finishedAt, errorCode, errorMessage, string(model.MessageJobProcessing), string(model.MessageJobRetryableFailed))
 	return mapMessageJobExecResult(result, err)
 }
 
@@ -113,10 +113,10 @@ func (s *PGMessageJobStore) IncrementAttempt(ctx context.Context, jobID string) 
 
 func (s *PGMessageJobStore) getOne(ctx context.Context, query string, arg string) (*model.MessageJob, error) {
 	var (
-		job               model.MessageJob
-		status            string
-		startedAt         sql.NullTime
-		finishedAt        sql.NullTime
+		job        model.MessageJob
+		status     string
+		startedAt  sql.NullTime
+		finishedAt sql.NullTime
 	)
 	err := s.db.QueryRowContext(ctx, query, arg).Scan(
 		&job.ID,

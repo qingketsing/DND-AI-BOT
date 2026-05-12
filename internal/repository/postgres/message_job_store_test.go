@@ -10,7 +10,7 @@ import (
 	"DND-AI-BOT/internal/repository"
 )
 
-func TestPGMessageJobStoreCreateAndGetByID(t *testing.T) {
+func TestMessageJobStoreCreateAndGetByID(t *testing.T) {
 	state := newFakePGState()
 	db := newFakePGDB(t, state)
 	store := NewPGMessageJobStore(db)
@@ -42,7 +42,7 @@ func TestPGMessageJobStoreCreateAndGetByID(t *testing.T) {
 	}
 }
 
-func TestPGMessageJobStoreGetByMessageID(t *testing.T) {
+func TestMessageJobStoreGetByMessageID(t *testing.T) {
 	state := newFakePGState()
 	db := newFakePGDB(t, state)
 	store := NewPGMessageJobStore(db)
@@ -74,7 +74,7 @@ func TestPGMessageJobStoreGetByMessageID(t *testing.T) {
 	}
 }
 
-func TestPGMessageJobStoreStatusTransitions(t *testing.T) {
+func TestMessageJobStoreStatusTransitions(t *testing.T) {
 	state := newFakePGState()
 	db := newFakePGDB(t, state)
 	store := NewPGMessageJobStore(db)
@@ -95,6 +95,11 @@ func TestPGMessageJobStoreStatusTransitions(t *testing.T) {
 
 	if err := store.Create(context.Background(), job); err != nil {
 		t.Fatalf("expected create to succeed, got %v", err)
+	}
+
+	publishedAt := now.Add(30 * time.Second)
+	if err := store.MarkPublished(context.Background(), job.ID, publishedAt); err != nil {
+		t.Fatalf("expected mark published to succeed, got %v", err)
 	}
 
 	startedAt := now.Add(time.Minute)
@@ -127,7 +132,47 @@ func TestPGMessageJobStoreStatusTransitions(t *testing.T) {
 	}
 }
 
-func TestPGMessageJobStoreFailureTransitions(t *testing.T) {
+func TestMessageJobStoreRejectsInvalidStatusTransitions(t *testing.T) {
+	state := newFakePGState()
+	db := newFakePGDB(t, state)
+	store := NewPGMessageJobStore(db)
+	now := time.Date(2026, 5, 6, 9, 25, 0, 0, time.UTC)
+
+	job := model.MessageJob{
+		ID:           "job-invalid",
+		MessageID:    "msg-invalid",
+		SessionID:    "session-invalid",
+		UserID:       "user-invalid",
+		Status:       model.MessageJobQueued,
+		AttemptCount: 0,
+		MaxAttempts:  3,
+		QueuedAt:     now,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+
+	if err := store.Create(context.Background(), job); err != nil {
+		t.Fatalf("expected create to succeed, got %v", err)
+	}
+
+	if err := store.MarkCompleted(context.Background(), job.ID, now.Add(time.Second), 1000); !errors.Is(err, repository.ErrMessageJobNotFound) {
+		t.Fatalf("expected invalid queued->completed transition to be rejected, got %v", err)
+	}
+
+	if err := store.MarkRetryableFailed(context.Background(), job.ID, now.Add(2*time.Second), "agent_failed", "temporary"); !errors.Is(err, repository.ErrMessageJobNotFound) {
+		t.Fatalf("expected invalid queued->retryable_failed transition to be rejected, got %v", err)
+	}
+
+	if err := store.MarkPublished(context.Background(), job.ID, now.Add(3*time.Second)); err != nil {
+		t.Fatalf("expected queued->published to succeed, got %v", err)
+	}
+
+	if err := store.MarkPublished(context.Background(), job.ID, now.Add(4*time.Second)); !errors.Is(err, repository.ErrMessageJobNotFound) {
+		t.Fatalf("expected second published transition to be rejected, got %v", err)
+	}
+}
+
+func TestMessageJobStoreFailureTransitions(t *testing.T) {
 	state := newFakePGState()
 	db := newFakePGDB(t, state)
 	store := NewPGMessageJobStore(db)
@@ -150,6 +195,14 @@ func TestPGMessageJobStoreFailureTransitions(t *testing.T) {
 		t.Fatalf("expected create to succeed, got %v", err)
 	}
 
+	startedAt := now.Add(5 * time.Second)
+	if err := store.MarkPublished(context.Background(), job.ID, startedAt); err != nil {
+		t.Fatalf("expected mark published to succeed, got %v", err)
+	}
+	if err := store.MarkProcessing(context.Background(), job.ID, "worker-1", startedAt); err != nil {
+		t.Fatalf("expected mark processing to succeed, got %v", err)
+	}
+
 	finishedAt := now.Add(10 * time.Second)
 	if err := store.MarkRetryableFailed(context.Background(), job.ID, finishedAt, "llm_timeout", "temporary failure"); err != nil {
 		t.Fatalf("expected retryable failed to succeed, got %v", err)
@@ -163,11 +216,32 @@ func TestPGMessageJobStoreFailureTransitions(t *testing.T) {
 		t.Fatalf("unexpected retryable failed state: %+v", retryable)
 	}
 
-	if err := store.MarkFailed(context.Background(), job.ID, finishedAt.Add(5*time.Second), "fatal_error", "permanent failure"); err != nil {
+	job2 := model.MessageJob{
+		ID:           "job-4b",
+		MessageID:    "msg-4b",
+		SessionID:    "session-4",
+		UserID:       "user-4",
+		Status:       model.MessageJobQueued,
+		AttemptCount: 0,
+		MaxAttempts:  3,
+		QueuedAt:     now,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	if err := store.Create(context.Background(), job2); err != nil {
+		t.Fatalf("expected second create to succeed, got %v", err)
+	}
+	if err := store.MarkPublished(context.Background(), job2.ID, now.Add(11*time.Second)); err != nil {
+		t.Fatalf("expected second mark published to succeed, got %v", err)
+	}
+	if err := store.MarkProcessing(context.Background(), job2.ID, "worker-2", now.Add(12*time.Second)); err != nil {
+		t.Fatalf("expected second mark processing to succeed, got %v", err)
+	}
+	if err := store.MarkFailed(context.Background(), job2.ID, finishedAt.Add(5*time.Second), "fatal_error", "permanent failure"); err != nil {
 		t.Fatalf("expected failed to succeed, got %v", err)
 	}
 
-	failed, err := store.GetByID(context.Background(), job.ID)
+	failed, err := store.GetByID(context.Background(), job2.ID)
 	if err != nil {
 		t.Fatalf("expected get after failed to succeed, got %v", err)
 	}
@@ -176,7 +250,7 @@ func TestPGMessageJobStoreFailureTransitions(t *testing.T) {
 	}
 }
 
-func TestPGMessageJobStoreReturnsNotFound(t *testing.T) {
+func TestMessageJobStoreReturnsNotFound(t *testing.T) {
 	state := newFakePGState()
 	db := newFakePGDB(t, state)
 	store := NewPGMessageJobStore(db)
