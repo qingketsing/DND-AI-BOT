@@ -2,6 +2,10 @@
 bin/
 dist/
 main
+/api
+/build_hybrid_index
+/rag_eval
+/soak_eval
 *.exe
 *.exe~
 *.dll
