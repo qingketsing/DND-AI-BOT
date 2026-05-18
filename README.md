@@ -18,8 +18,6 @@
 4. 通过 Agent Runtime 调用工具、检索规则与设定
 5. 将角色、场景、战斗和摘要写回 PostgreSQL / Redis
 
-当前版本已经接入异步消息处理骨架：`POST /sessions/{id}/messages` 在异步模式下可先返回 `202 Accepted`，并通过 `message_jobs` 跟踪状态；接单侧已切换为事务化 `message + message_job + outbox_event` 写入，为后续 RabbitMQ 分发与独立 Worker 消费做准备。
-
 ## 游戏规则，回复和当前工作重心
 
 目前本游戏服务端仅支持文字游戏，并不支持实际游戏场景渲染。如果对游戏画面有更高的要求，那么这个项目可能并不适合您。
