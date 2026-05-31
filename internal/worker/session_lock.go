@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"DND-AI-BOT/internal/repository"
 	goredis "github.com/redis/go-redis/v9"
 )
 
@@ -14,16 +15,6 @@ type SessionLock interface {
 	Acquire(ctx context.Context, sessionID string, jobID string, workerID string, ttl time.Duration) (bool, error)
 	Renew(ctx context.Context, sessionID string, jobID string, workerID string, ttl time.Duration) error
 	Release(ctx context.Context, sessionID string, jobID string, workerID string) error
-}
-
-type SessionLockInspector interface {
-	Inspect(ctx context.Context, sessionID string) (SessionLockOwner, error)
-}
-
-type SessionLockOwner struct {
-	Exists   bool
-	JobID    string
-	WorkerID string
 }
 
 const (
@@ -93,22 +84,22 @@ func (l *RedisSessionLock) Release(ctx context.Context, sessionID string, jobID 
 	return err
 }
 
-func (l *RedisSessionLock) Inspect(ctx context.Context, sessionID string) (SessionLockOwner, error) {
+func (l *RedisSessionLock) Inspect(ctx context.Context, sessionID string) (repository.SessionLockOwner, error) {
 	if l.backend == nil {
-		return SessionLockOwner{}, errors.New("session lock backend is nil")
+		return repository.SessionLockOwner{}, errors.New("session lock backend is nil")
 	}
 	raw, err := l.backend.Get(ctx, sessionLockKey(sessionID))
 	if errors.Is(err, goredis.Nil) {
-		return SessionLockOwner{}, nil
+		return repository.SessionLockOwner{}, nil
 	}
 	if err != nil {
-		return SessionLockOwner{}, err
+		return repository.SessionLockOwner{}, err
 	}
 	var state sessionLockState
 	if err := json.Unmarshal([]byte(raw), &state); err != nil {
-		return SessionLockOwner{}, err
+		return repository.SessionLockOwner{}, err
 	}
-	return SessionLockOwner{
+	return repository.SessionLockOwner{
 		Exists:   true,
 		JobID:    state.JobID,
 		WorkerID: state.WorkerID,
