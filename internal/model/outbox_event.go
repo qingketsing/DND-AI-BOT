@@ -24,5 +24,6 @@ type OutboxEvent struct {
 	LastError     string            `json:"last_error"`
 	CreatedAt     time.Time         `json:"created_at"`
 	PublishedAt   *time.Time        `json:"published_at,omitempty"`
+	NextRetryAt   *time.Time        `json:"next_retry_at,omitempty"`
 	UpdatedAt     time.Time         `json:"updated_at"`
 }

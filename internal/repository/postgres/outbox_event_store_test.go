@@ -66,6 +66,29 @@ func TestMigrationsAddOutboxAndAssistantMessageConstraints(t *testing.T) {
 	}
 }
 
+func TestMigrationAddsAsyncRecoveryFields(t *testing.T) {
+	recoveryMigration := readMigrationFile(t, "015_add_async_recovery_fields.sql")
+	for _, fragment := range []string{
+		"ALTER TABLE message_jobs",
+		"ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMPTZ NULL",
+		"ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMPTZ NULL",
+		"CREATE INDEX IF NOT EXISTS idx_message_jobs_retryable_next_retry_at",
+		"ON message_jobs(status, next_retry_at)",
+		"WHERE status = 'retryable_failed'",
+		"CREATE INDEX IF NOT EXISTS idx_message_jobs_processing_updated_at",
+		"ON message_jobs(status, updated_at)",
+		"WHERE status = 'processing'",
+		"ALTER TABLE outbox_events",
+		"CREATE INDEX IF NOT EXISTS idx_outbox_events_dispatch_due",
+		"ON outbox_events(status, next_retry_at, created_at)",
+		"WHERE status IN ('pending', 'failed')",
+	} {
+		if !strings.Contains(recoveryMigration, fragment) {
+			t.Fatalf("expected recovery migration to contain %q", fragment)
+		}
+	}
+}
+
 func TestPGOutboxEventStoreCreateAndGetPending(t *testing.T) {
 	state := newFakePGState()
 	db := newFakePGDB(t, state)

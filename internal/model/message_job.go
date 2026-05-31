@@ -26,6 +26,8 @@ type MessageJob struct {
 	QueuedAt         time.Time        `json:"queued_at"`
 	StartedAt        *time.Time       `json:"started_at,omitempty"`
 	FinishedAt       *time.Time       `json:"finished_at,omitempty"`
+	NextRetryAt      *time.Time       `json:"next_retry_at,omitempty"`
+	HeartbeatAt      *time.Time       `json:"heartbeat_at,omitempty"`
 	LastErrorCode    string           `json:"last_error_code"`
 	LastErrorMessage string           `json:"last_error_message"`
 	LatencyMS        int64            `json:"latency_ms"`
