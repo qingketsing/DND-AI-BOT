@@ -3,6 +3,8 @@ package worker
 import (
 	"context"
 	"time"
+
+	goredis "github.com/redis/go-redis/v9"
 )
 
 type fakeLockClient struct {
@@ -44,4 +46,13 @@ func (c *fakeLockClient) CompareAndDelete(ctx context.Context, key string, expec
 		return true, nil
 	}
 	return false, nil
+}
+
+func (c *fakeLockClient) Get(ctx context.Context, key string) (string, error) {
+	_ = ctx
+	value, ok := c.values[key]
+	if !ok {
+		return "", goredis.Nil
+	}
+	return value, nil
 }

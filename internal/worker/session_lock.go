@@ -16,6 +16,16 @@ type SessionLock interface {
 	Release(ctx context.Context, sessionID string, jobID string, workerID string) error
 }
 
+type SessionLockInspector interface {
+	Inspect(ctx context.Context, sessionID string) (SessionLockOwner, error)
+}
+
+type SessionLockOwner struct {
+	Exists   bool
+	JobID    string
+	WorkerID string
+}
+
 const (
 	defaultSessionLockTTL               = 180 * time.Second
 	defaultSessionLockHeartbeatInterval = 30 * time.Second
@@ -25,6 +35,7 @@ type sessionLockBackend interface {
 	SetNX(ctx context.Context, key string, value string, ttl time.Duration) (bool, error)
 	CompareAndExpire(ctx context.Context, key string, expected string, ttl time.Duration) (bool, error)
 	CompareAndDelete(ctx context.Context, key string, expected string) (bool, error)
+	Get(ctx context.Context, key string) (string, error)
 }
 
 type RedisSessionLock struct {
@@ -80,6 +91,28 @@ func (l *RedisSessionLock) Release(ctx context.Context, sessionID string, jobID 
 	}
 	_, err = l.backend.CompareAndDelete(ctx, sessionLockKey(sessionID), payload)
 	return err
+}
+
+func (l *RedisSessionLock) Inspect(ctx context.Context, sessionID string) (SessionLockOwner, error) {
+	if l.backend == nil {
+		return SessionLockOwner{}, errors.New("session lock backend is nil")
+	}
+	raw, err := l.backend.Get(ctx, sessionLockKey(sessionID))
+	if errors.Is(err, goredis.Nil) {
+		return SessionLockOwner{}, nil
+	}
+	if err != nil {
+		return SessionLockOwner{}, err
+	}
+	var state sessionLockState
+	if err := json.Unmarshal([]byte(raw), &state); err != nil {
+		return SessionLockOwner{}, err
+	}
+	return SessionLockOwner{
+		Exists:   true,
+		JobID:    state.JobID,
+		WorkerID: state.WorkerID,
+	}, nil
 }
 
 func startSessionLockHeartbeat(
@@ -197,4 +230,8 @@ return 0
 		return false, err
 	}
 	return result == 1, nil
+}
+
+func (b *redisSessionLockBackend) Get(ctx context.Context, key string) (string, error) {
+	return b.client.Get(ctx, key).Result()
 }

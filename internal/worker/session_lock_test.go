@@ -68,6 +68,33 @@ func TestSessionLockReleaseIgnoresForeignOwner(t *testing.T) {
 	}
 }
 
+func TestSessionLockInspectReturnsCurrentOwner(t *testing.T) {
+	client := newFakeLockClient()
+	lock := newRedisSessionLockWithBackend(client)
+	ctx := context.Background()
+
+	owner, err := lock.Inspect(ctx, "session-inspect")
+	if err != nil {
+		t.Fatalf("expected missing lock inspect to succeed, got %v", err)
+	}
+	if owner.Exists {
+		t.Fatalf("expected missing lock owner, got %+v", owner)
+	}
+
+	acquired, err := lock.Acquire(ctx, "session-inspect", "job-1", "worker-1", time.Minute)
+	if err != nil || !acquired {
+		t.Fatalf("expected acquire to succeed, got acquired=%v err=%v", acquired, err)
+	}
+
+	owner, err = lock.Inspect(ctx, "session-inspect")
+	if err != nil {
+		t.Fatalf("expected inspect to succeed, got %v", err)
+	}
+	if !owner.Exists || owner.JobID != "job-1" || owner.WorkerID != "worker-1" {
+		t.Fatalf("unexpected lock owner: %+v", owner)
+	}
+}
+
 func TestSessionLockHeartbeatRenewsUntilStopped(t *testing.T) {
 	client := newFakeLockClient()
 	client.expireSignal = make(chan struct{}, 2)
