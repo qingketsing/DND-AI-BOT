@@ -27,6 +27,7 @@ import (
 	httpHandler "DND-AI-BOT/internal/transport/http/handler"
 	httpMiddleware "DND-AI-BOT/internal/transport/http/middleware"
 	"DND-AI-BOT/internal/transport/http/router"
+	"DND-AI-BOT/internal/worker"
 )
 
 // App 负责承载应用初始化后的根 HTTP handler。
@@ -36,6 +37,8 @@ type App struct {
 	AsyncMessageService    *service.AsyncMessageService
 	OutboxDispatcher       *service.OutboxDispatcher
 	OutboxDispatchLoop     *OutboxDispatchLoop
+	AsyncRecovery          *service.AsyncMessageRecovery
+	AsyncRecoveryLoop      *AsyncRecoveryLoop
 	AuthService            *service.AuthService
 	SessionService         *service.SessionService
 	GameStateService       *service.GameStateService
@@ -183,6 +186,8 @@ func NewApp(deps *bootstrap.RuntimeDependencies, options ...AppOption) (*App, er
 	var asyncMessageService *service.AsyncMessageService
 	var outboxDispatcher *service.OutboxDispatcher
 	var outboxDispatchLoop *OutboxDispatchLoop
+	var asyncRecovery *service.AsyncMessageRecovery
+	var asyncRecoveryLoop *AsyncRecoveryLoop
 	if asyncMessageConfig.Enabled {
 		if deps == nil || deps.DB == nil || deps.RedisClient == nil || deps.RabbitMQPublisher == nil {
 			return nil, bootstrap.ErrMissingAsyncMessageDependencies
@@ -192,6 +197,17 @@ func NewApp(deps *bootstrap.RuntimeDependencies, options ...AppOption) (*App, er
 		outboxRepository := postgresstore.NewPGOutboxEventStore(deps.DB)
 		outboxDispatcher = service.NewOutboxDispatcher(outboxRepository, messageJobRepository, deps.RabbitMQPublisher, deps.RabbitMQConfig.DispatchBatchSize)
 		outboxDispatchLoop = NewOutboxDispatchLoop(outboxDispatcher, deps.RabbitMQConfig.DispatchInterval())
+		asyncRecovery = service.NewAsyncMessageRecovery(
+			messageJobRepository,
+			outboxRepository,
+			worker.NewRedisSessionLock(deps.RedisClient),
+			service.AsyncRecoveryConfig{
+				BatchSize:            asyncMessageConfig.RecoveryBatchSize,
+				RetryDelay:           asyncMessageConfig.RecoveryRetryDelay,
+				ProcessingStaleAfter: asyncMessageConfig.RecoveryProcessingStaleAfter,
+			},
+		)
+		asyncRecoveryLoop = NewAsyncRecoveryLoop(asyncRecovery, asyncMessageConfig.RecoveryInterval)
 	}
 	sessionService.SetMemoryRefresher(sessionMemoryRefresher)
 	sessionDeleteCleaners := make([]service.SessionDeleteCleaner, 0, 3)
@@ -242,6 +258,8 @@ func NewApp(deps *bootstrap.RuntimeDependencies, options ...AppOption) (*App, er
 		AsyncMessageService:    asyncMessageService,
 		OutboxDispatcher:       outboxDispatcher,
 		OutboxDispatchLoop:     outboxDispatchLoop,
+		AsyncRecovery:          asyncRecovery,
+		AsyncRecoveryLoop:      asyncRecoveryLoop,
 		AuthService:            authService,
 		SessionService:         sessionService,
 		GameStateService:       gameStateService,
@@ -253,17 +271,35 @@ func NewApp(deps *bootstrap.RuntimeDependencies, options ...AppOption) (*App, er
 }
 
 func (a *App) StartBackgrounds(ctx context.Context) error {
-	if a == nil || a.OutboxDispatchLoop == nil {
+	if a == nil {
 		return nil
 	}
-	return a.OutboxDispatchLoop.Start(ctx)
+	if a.OutboxDispatchLoop != nil {
+		if err := a.OutboxDispatchLoop.Start(ctx); err != nil {
+			return err
+		}
+	}
+	if a.AsyncRecoveryLoop != nil {
+		if err := a.AsyncRecoveryLoop.Start(ctx); err != nil {
+			if a.OutboxDispatchLoop != nil {
+				a.OutboxDispatchLoop.Stop()
+			}
+			return err
+		}
+	}
+	return nil
 }
 
 func (a *App) Close() error {
-	if a == nil || a.OutboxDispatchLoop == nil {
+	if a == nil {
 		return nil
 	}
-	a.OutboxDispatchLoop.Stop()
+	if a.AsyncRecoveryLoop != nil {
+		a.AsyncRecoveryLoop.Stop()
+	}
+	if a.OutboxDispatchLoop != nil {
+		a.OutboxDispatchLoop.Stop()
+	}
 	return nil
 }
 

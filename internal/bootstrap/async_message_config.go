@@ -11,19 +11,27 @@ var ErrMissingAsyncMessageDependencies = errors.New("missing async message depen
 
 // AsyncMessageConfig 定义异步消息运行时配置。
 type AsyncMessageConfig struct {
-	Enabled             bool
-	WorkerCount         int
-	QueueBuffer         int
-	RetryDelay          time.Duration
+	Enabled                      bool
+	WorkerCount                  int
+	QueueBuffer                  int
+	RetryDelay                   time.Duration
+	RecoveryInterval             time.Duration
+	RecoveryBatchSize            int
+	RecoveryRetryDelay           time.Duration
+	RecoveryProcessingStaleAfter time.Duration
 }
 
 // LoadAsyncMessageConfigFromEnv 从环境变量加载异步消息配置。
 func LoadAsyncMessageConfigFromEnv() AsyncMessageConfig {
 	return AsyncMessageConfig{
-		Enabled:     loadBoolEnv("ASYNC_MESSAGE_ENABLED", false),
-		WorkerCount: loadIntEnv("ASYNC_MESSAGE_WORKER_COUNT", 4),
-		QueueBuffer: loadIntEnv("ASYNC_MESSAGE_QUEUE_BUFFER", 512),
-		RetryDelay:  time.Duration(loadIntEnv("ASYNC_MESSAGE_RETRY_DELAY_MS", 200)) * time.Millisecond,
+		Enabled:                      loadBoolEnv("ASYNC_MESSAGE_ENABLED", false),
+		WorkerCount:                  loadIntEnv("ASYNC_MESSAGE_WORKER_COUNT", 4),
+		QueueBuffer:                  loadIntEnv("ASYNC_MESSAGE_QUEUE_BUFFER", 512),
+		RetryDelay:                   time.Duration(loadIntEnv("ASYNC_MESSAGE_RETRY_DELAY_MS", 200)) * time.Millisecond,
+		RecoveryInterval:             time.Duration(loadIntEnv("ASYNC_MESSAGE_RECOVERY_INTERVAL_SECONDS", 30)) * time.Second,
+		RecoveryBatchSize:            loadIntEnv("ASYNC_MESSAGE_RECOVERY_BATCH_SIZE", 50),
+		RecoveryRetryDelay:           time.Duration(loadIntEnv("ASYNC_MESSAGE_RECOVERY_RETRY_DELAY_SECONDS", 30)) * time.Second,
+		RecoveryProcessingStaleAfter: time.Duration(loadIntEnv("ASYNC_MESSAGE_PROCESSING_STALE_AFTER_SECONDS", 300)) * time.Second,
 	}
 }
 

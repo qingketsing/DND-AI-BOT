@@ -116,6 +116,12 @@ func TestNewAppBuildsOutboxDispatcherWhenAsyncMessageModeEnabled(t *testing.T) {
 	if application.OutboxDispatchLoop == nil {
 		t.Fatal("expected outbox dispatch loop to be configured")
 	}
+	if application.AsyncRecovery == nil {
+		t.Fatal("expected async recovery to be configured")
+	}
+	if application.AsyncRecoveryLoop == nil {
+		t.Fatal("expected async recovery loop to be configured")
+	}
 	if err := application.StartBackgrounds(context.Background()); err != nil {
 		t.Fatalf("expected background start to succeed, got %v", err)
 	}
