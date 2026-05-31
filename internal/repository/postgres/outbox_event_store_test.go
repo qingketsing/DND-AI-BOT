@@ -238,7 +238,8 @@ func TestPGOutboxEventStoreMarkFailedAttempt(t *testing.T) {
 	}
 
 	failedAt := now.Add(45 * time.Second)
-	if err := store.MarkFailedAttempt(context.Background(), event.ID, failedAt, "broker unavailable"); err != nil {
+	nextRetryAt := failedAt.Add(30 * time.Second)
+	if err := store.MarkFailedAttempt(context.Background(), event.ID, failedAt, nextRetryAt, "broker unavailable"); err != nil {
 		t.Fatalf("expected mark failed attempt to succeed, got %v", err)
 	}
 
@@ -251,6 +252,9 @@ func TestPGOutboxEventStoreMarkFailedAttempt(t *testing.T) {
 	}
 	if stored.LastError != "broker unavailable" {
 		t.Fatalf("expected last_error to persist, got %+v", stored)
+	}
+	if stored.NextRetryAt == nil || !stored.NextRetryAt.Equal(nextRetryAt) {
+		t.Fatalf("expected next_retry_at %s, got %+v", nextRetryAt, stored.NextRetryAt)
 	}
 	if stored.UpdatedAt != failedAt {
 		t.Fatalf("expected updated_at %s, got %s", failedAt, stored.UpdatedAt)
@@ -271,6 +275,39 @@ func TestPGOutboxEventStoreMarkFailedAttempt(t *testing.T) {
 	}
 }
 
+func TestPGOutboxEventStoreSkipsFailedEventsUntilRetryTime(t *testing.T) {
+	state := newFakePGState()
+	db := newFakePGDB(t, state)
+	store := NewPGOutboxEventStore(db)
+	now := time.Now().UTC()
+
+	futureRetry := now.Add(time.Hour)
+	event := model.OutboxEvent{
+		ID:            "event-future-retry",
+		AggregateType: "message_job",
+		AggregateID:   "job-future-retry",
+		EventType:     "message_job_queued",
+		PayloadJSON:   []byte(`{"job_id":"job-future-retry"}`),
+		Status:        model.OutboxEventFailed,
+		AttemptCount:  1,
+		LastError:     "broker unavailable",
+		CreatedAt:     now,
+		NextRetryAt:   &futureRetry,
+		UpdatedAt:     now,
+	}
+	if err := store.Create(context.Background(), event); err != nil {
+		t.Fatalf("expected create to succeed, got %v", err)
+	}
+
+	pending, err := store.GetPending(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("expected get pending to succeed, got %v", err)
+	}
+	if len(pending) != 0 {
+		t.Fatalf("expected future failed event to be skipped, got %+v", pending)
+	}
+}
+
 func TestPGOutboxEventStoreReturnsNotFound(t *testing.T) {
 	state := newFakePGState()
 	db := newFakePGDB(t, state)
@@ -280,7 +317,7 @@ func TestPGOutboxEventStoreReturnsNotFound(t *testing.T) {
 	if err := store.MarkPublished(context.Background(), "missing", now); !errors.Is(err, repository.ErrOutboxEventNotFound) {
 		t.Fatalf("expected ErrOutboxEventNotFound, got %v", err)
 	}
-	if err := store.MarkFailedAttempt(context.Background(), "missing", now, "missing"); !errors.Is(err, repository.ErrOutboxEventNotFound) {
+	if err := store.MarkFailedAttempt(context.Background(), "missing", now, now.Add(30*time.Second), "missing"); !errors.Is(err, repository.ErrOutboxEventNotFound) {
 		t.Fatalf("expected ErrOutboxEventNotFound, got %v", err)
 	}
 }

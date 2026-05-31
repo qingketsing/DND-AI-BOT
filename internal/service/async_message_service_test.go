@@ -384,6 +384,30 @@ func (f *fakeAsyncMessageJobRepository) IncrementAttempt(ctx context.Context, jo
 	return nil
 }
 
+func (f *fakeAsyncMessageJobRepository) ListStaleProcessing(ctx context.Context, cutoff time.Time, limit int) ([]model.MessageJob, error) {
+	panic("unexpected ListStaleProcessing call")
+}
+
+func (f *fakeAsyncMessageJobRepository) ListRetryDue(ctx context.Context, now time.Time, limit int) ([]model.MessageJob, error) {
+	panic("unexpected ListRetryDue call")
+}
+
+func (f *fakeAsyncMessageJobRepository) MarkRetryScheduled(ctx context.Context, jobID string, failedAt time.Time, nextRetryAt time.Time, errorCode string, errorMessage string) error {
+	panic("unexpected MarkRetryScheduled call")
+}
+
+func (f *fakeAsyncMessageJobRepository) RequeueRetryableWithOutbox(ctx context.Context, job model.MessageJob, event model.OutboxEvent, requeuedAt time.Time) error {
+	panic("unexpected RequeueRetryableWithOutbox call")
+}
+
+func (f *fakeAsyncMessageJobRepository) MarkHeartbeat(ctx context.Context, jobID string, heartbeatAt time.Time) error {
+	panic("unexpected MarkHeartbeat call")
+}
+
+func (f *fakeAsyncMessageJobRepository) RepairPublished(ctx context.Context, jobID string, repairedAt time.Time) error {
+	panic("unexpected RepairPublished call")
+}
+
 func cloneSession(session *model.Session) *model.Session {
 	if session == nil {
 		return nil

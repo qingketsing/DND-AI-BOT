@@ -19,4 +19,10 @@ type MessageJobRepository interface {
 	MarkRetryableFailed(ctx context.Context, jobID string, finishedAt time.Time, errorCode string, errorMessage string) error
 	MarkFailed(ctx context.Context, jobID string, finishedAt time.Time, errorCode string, errorMessage string) error
 	IncrementAttempt(ctx context.Context, jobID string) error
+	ListStaleProcessing(ctx context.Context, cutoff time.Time, limit int) ([]model.MessageJob, error)
+	ListRetryDue(ctx context.Context, now time.Time, limit int) ([]model.MessageJob, error)
+	MarkRetryScheduled(ctx context.Context, jobID string, failedAt time.Time, nextRetryAt time.Time, errorCode string, errorMessage string) error
+	RequeueRetryableWithOutbox(ctx context.Context, job model.MessageJob, event model.OutboxEvent, requeuedAt time.Time) error
+	MarkHeartbeat(ctx context.Context, jobID string, heartbeatAt time.Time) error
+	RepairPublished(ctx context.Context, jobID string, repairedAt time.Time) error
 }

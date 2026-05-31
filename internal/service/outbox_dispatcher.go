@@ -9,6 +9,7 @@ import (
 )
 
 const defaultOutboxDispatchBatchSize = 50
+const defaultOutboxRetryDelay = 30 * time.Second
 
 type OutboxDispatcher struct {
 	outbox    repository.OutboxEventRepository
@@ -44,13 +45,13 @@ func (d *OutboxDispatcher) DispatchOnce(ctx context.Context, now time.Time) (int
 	for _, event := range events {
 		payload, err := queue.DecodeMessageJobPayload(event.PayloadJSON)
 		if err != nil {
-			if markErr := d.outbox.MarkFailedAttempt(ctx, event.ID, now, err.Error()); markErr != nil {
+			if markErr := d.outbox.MarkFailedAttempt(ctx, event.ID, now, now.Add(defaultOutboxRetryDelay), err.Error()); markErr != nil {
 				return dispatched, markErr
 			}
 			continue
 		}
 		if err := d.publisher.Publish(ctx, payload); err != nil {
-			if markErr := d.outbox.MarkFailedAttempt(ctx, event.ID, now, err.Error()); markErr != nil {
+			if markErr := d.outbox.MarkFailedAttempt(ctx, event.ID, now, now.Add(defaultOutboxRetryDelay), err.Error()); markErr != nil {
 				return dispatched, markErr
 			}
 			continue

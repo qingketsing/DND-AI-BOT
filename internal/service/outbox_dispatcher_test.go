@@ -8,6 +8,7 @@ import (
 
 	"DND-AI-BOT/internal/model"
 	"DND-AI-BOT/internal/queue"
+	"DND-AI-BOT/internal/repository"
 )
 
 func TestOutboxDispatcherPublishesPendingEventsAndMarksState(t *testing.T) {
@@ -109,10 +110,11 @@ func TestOutboxDispatcherMarksFailedAttemptWhenPublishFails(t *testing.T) {
 }
 
 type fakeOutboxEventRepository struct {
-	events        []model.OutboxEvent
-	publishedIDs  []string
-	failedIDs     []string
-	failedErrors  []string
+	events       []model.OutboxEvent
+	publishedIDs []string
+	failedIDs    []string
+	failedErrors []string
+	nextRetryAt  []time.Time
 }
 
 func (f *fakeOutboxEventRepository) Create(ctx context.Context, event model.OutboxEvent) error {
@@ -136,12 +138,17 @@ func (f *fakeOutboxEventRepository) MarkPublished(ctx context.Context, id string
 	return nil
 }
 
-func (f *fakeOutboxEventRepository) MarkFailedAttempt(ctx context.Context, id string, failedAt time.Time, lastError string) error {
+func (f *fakeOutboxEventRepository) MarkFailedAttempt(ctx context.Context, id string, failedAt time.Time, nextRetryAt time.Time, lastError string) error {
 	_ = ctx
 	_ = failedAt
 	f.failedIDs = append(f.failedIDs, id)
 	f.failedErrors = append(f.failedErrors, lastError)
+	f.nextRetryAt = append(f.nextRetryAt, nextRetryAt)
 	return nil
+}
+
+func (f *fakeOutboxEventRepository) ListPublishedWithQueuedJobs(ctx context.Context, limit int) ([]repository.OutboxJobRepairCandidate, error) {
+	panic("unexpected ListPublishedWithQueuedJobs call")
 }
 
 type fakeDispatcherMessageJobRepository struct {
@@ -185,6 +192,30 @@ func (f *fakeDispatcherMessageJobRepository) MarkFailed(ctx context.Context, job
 
 func (f *fakeDispatcherMessageJobRepository) IncrementAttempt(ctx context.Context, jobID string) error {
 	panic("unexpected IncrementAttempt call")
+}
+
+func (f *fakeDispatcherMessageJobRepository) ListStaleProcessing(ctx context.Context, cutoff time.Time, limit int) ([]model.MessageJob, error) {
+	panic("unexpected ListStaleProcessing call")
+}
+
+func (f *fakeDispatcherMessageJobRepository) ListRetryDue(ctx context.Context, now time.Time, limit int) ([]model.MessageJob, error) {
+	panic("unexpected ListRetryDue call")
+}
+
+func (f *fakeDispatcherMessageJobRepository) MarkRetryScheduled(ctx context.Context, jobID string, failedAt time.Time, nextRetryAt time.Time, errorCode string, errorMessage string) error {
+	panic("unexpected MarkRetryScheduled call")
+}
+
+func (f *fakeDispatcherMessageJobRepository) RequeueRetryableWithOutbox(ctx context.Context, job model.MessageJob, event model.OutboxEvent, requeuedAt time.Time) error {
+	panic("unexpected RequeueRetryableWithOutbox call")
+}
+
+func (f *fakeDispatcherMessageJobRepository) MarkHeartbeat(ctx context.Context, jobID string, heartbeatAt time.Time) error {
+	panic("unexpected MarkHeartbeat call")
+}
+
+func (f *fakeDispatcherMessageJobRepository) RepairPublished(ctx context.Context, jobID string, repairedAt time.Time) error {
+	panic("unexpected RepairPublished call")
 }
 
 type fakeDispatcherPublisher struct {

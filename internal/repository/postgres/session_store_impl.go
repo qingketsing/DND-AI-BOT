@@ -20,7 +20,7 @@ type sessionMessageAsyncFields struct {
 }
 
 const (
-	sessionMessagesReplyToConstraint = "uq_session_messages_assistant_reply_to_message_id"
+	sessionMessagesReplyToConstraint   = "uq_session_messages_assistant_reply_to_message_id"
 	sessionMessagesSourceJobConstraint = "uq_session_messages_assistant_source_job_id"
 )
 
@@ -361,10 +361,10 @@ func insertMessageJobTx(ctx context.Context, tx *sql.Tx, job model.MessageJob) e
 			attempt_count, max_attempts, worker_id,
 			queued_at, started_at, finished_at,
 			last_error_code, last_error_message, latency_ms,
-			created_at, updated_at
+			next_retry_at, heartbeat_at, created_at, updated_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-	`, job.ID, job.MessageID, job.SessionID, job.UserID, string(job.Status), job.AttemptCount, job.MaxAttempts, job.WorkerID, job.QueuedAt, job.StartedAt, job.FinishedAt, job.LastErrorCode, job.LastErrorMessage, job.LatencyMS, job.CreatedAt, job.UpdatedAt)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+	`, job.ID, job.MessageID, job.SessionID, job.UserID, string(job.Status), job.AttemptCount, job.MaxAttempts, job.WorkerID, job.QueuedAt, job.StartedAt, job.FinishedAt, job.LastErrorCode, job.LastErrorMessage, job.LatencyMS, job.NextRetryAt, job.HeartbeatAt, job.CreatedAt, job.UpdatedAt)
 	return err
 }
 
@@ -372,9 +372,9 @@ func insertOutboxEventTx(ctx context.Context, tx *sql.Tx, event model.OutboxEven
 	_, err := tx.ExecContext(ctx, `
 		INSERT INTO outbox_events (
 			id, aggregate_type, aggregate_id, event_type, payload_json,
-			status, attempt_count, last_error, created_at, published_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-	`, event.ID, event.AggregateType, event.AggregateID, event.EventType, []byte(event.PayloadJSON), string(event.Status), event.AttemptCount, event.LastError, event.CreatedAt, event.PublishedAt, event.UpdatedAt)
+			status, attempt_count, last_error, created_at, published_at, next_retry_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+	`, event.ID, event.AggregateType, event.AggregateID, event.EventType, []byte(event.PayloadJSON), string(event.Status), event.AttemptCount, event.LastError, event.CreatedAt, event.PublishedAt, event.NextRetryAt, event.UpdatedAt)
 	return err
 }
 

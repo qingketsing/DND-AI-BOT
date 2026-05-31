@@ -230,8 +230,6 @@ func (c *fakePGConn) ExecContext(ctx context.Context, query string, args []drive
 			LastErrorCode:    args[11].Value.(string),
 			LastErrorMessage: args[12].Value.(string),
 			LatencyMS:        args[13].Value.(int64),
-			CreatedAt:        args[14].Value.(time.Time),
-			UpdatedAt:        args[15].Value.(time.Time),
 		}
 		if args[9].Value != nil {
 			value := args[9].Value.(time.Time)
@@ -241,6 +239,22 @@ func (c *fakePGConn) ExecContext(ctx context.Context, query string, args []drive
 			value := args[10].Value.(time.Time)
 			job.FinishedAt = &value
 		}
+		createdAtIndex := 14
+		updatedAtIndex := 15
+		if len(args) > 16 {
+			if args[14].Value != nil {
+				value := args[14].Value.(time.Time)
+				job.NextRetryAt = &value
+			}
+			if args[15].Value != nil {
+				value := args[15].Value.(time.Time)
+				job.HeartbeatAt = &value
+			}
+			createdAtIndex = 16
+			updatedAtIndex = 17
+		}
+		job.CreatedAt = args[createdAtIndex].Value.(time.Time)
+		job.UpdatedAt = args[updatedAtIndex].Value.(time.Time)
 		c.state.messageJobs[job.ID] = job
 		return driver.RowsAffected(1), nil
 	case strings.Contains(query, "INSERT INTO outbox_events"):
@@ -263,12 +277,20 @@ func (c *fakePGConn) ExecContext(ctx context.Context, query string, args []drive
 			AttemptCount:  int(args[6].Value.(int64)),
 			LastError:     args[7].Value.(string),
 			CreatedAt:     args[8].Value.(time.Time),
-			UpdatedAt:     args[10].Value.(time.Time),
 		}
 		if args[9].Value != nil {
 			value := args[9].Value.(time.Time)
 			event.PublishedAt = &value
 		}
+		updatedAtIndex := 10
+		if len(args) > 11 {
+			if args[10].Value != nil {
+				value := args[10].Value.(time.Time)
+				event.NextRetryAt = &value
+			}
+			updatedAtIndex = 11
+		}
+		event.UpdatedAt = args[updatedAtIndex].Value.(time.Time)
 		c.state.outboxEvents[event.ID] = event
 		return driver.RowsAffected(1), nil
 	case strings.Contains(query, "INSERT INTO knowledge_chunks"):
@@ -323,7 +345,7 @@ func (c *fakePGConn) ExecContext(ctx context.Context, query string, args []drive
 		job.UpdatedAt = args[1].Value.(time.Time)
 		c.state.messageJobs[jobID] = job
 		return driver.RowsAffected(1), nil
-	case strings.Contains(query, "UPDATE message_jobs") && strings.Contains(query, "SET status = $2, updated_at = $3"):
+	case strings.Contains(query, "UPDATE message_jobs") && strings.Contains(query, "SET status = $2") && strings.Contains(query, "updated_at = $3") && !strings.Contains(query, "latency_ms") && !strings.Contains(query, "last_error_code") && !strings.Contains(query, "started_at = NULL"):
 		jobID := args[0].Value.(string)
 		job, ok := c.state.messageJobs[jobID]
 		if !ok {
@@ -334,6 +356,7 @@ func (c *fakePGConn) ExecContext(ctx context.Context, query string, args []drive
 			return driver.RowsAffected(0), nil
 		}
 		job.Status = model.MessageJobStatus(args[1].Value.(string))
+		job.NextRetryAt = nil
 		job.UpdatedAt = args[2].Value.(time.Time)
 		c.state.messageJobs[jobID] = job
 		return driver.RowsAffected(1), nil
@@ -351,6 +374,8 @@ func (c *fakePGConn) ExecContext(ctx context.Context, query string, args []drive
 		job.Status = model.MessageJobStatus(args[1].Value.(string))
 		job.WorkerID = args[2].Value.(string)
 		job.StartedAt = &startedAt
+		job.HeartbeatAt = &startedAt
+		job.NextRetryAt = nil
 		job.UpdatedAt = startedAt
 		c.state.messageJobs[jobID] = job
 		return driver.RowsAffected(1), nil
@@ -368,6 +393,30 @@ func (c *fakePGConn) ExecContext(ctx context.Context, query string, args []drive
 		job.Status = model.MessageJobStatus(args[1].Value.(string))
 		job.FinishedAt = &finishedAt
 		job.LatencyMS = args[3].Value.(int64)
+		job.NextRetryAt = nil
+		job.UpdatedAt = finishedAt
+		c.state.messageJobs[jobID] = job
+		return driver.RowsAffected(1), nil
+	case strings.Contains(query, "UPDATE message_jobs") && strings.Contains(query, "next_retry_at = $4") && strings.Contains(query, "last_error_code = $5"):
+		jobID := args[0].Value.(string)
+		job, ok := c.state.messageJobs[jobID]
+		if !ok {
+			return driver.RowsAffected(0), nil
+		}
+		allowed := map[model.MessageJobStatus]struct{}{
+			model.MessageJobStatus(args[6].Value.(string)): {},
+			model.MessageJobStatus(args[7].Value.(string)): {},
+		}
+		if _, ok := allowed[job.Status]; !ok {
+			return driver.RowsAffected(0), nil
+		}
+		finishedAt := args[2].Value.(time.Time)
+		nextRetryAt := args[3].Value.(time.Time)
+		job.Status = model.MessageJobStatus(args[1].Value.(string))
+		job.FinishedAt = &finishedAt
+		job.NextRetryAt = &nextRetryAt
+		job.LastErrorCode = args[4].Value.(string)
+		job.LastErrorMessage = args[5].Value.(string)
 		job.UpdatedAt = finishedAt
 		c.state.messageJobs[jobID] = job
 		return driver.RowsAffected(1), nil
@@ -391,7 +440,42 @@ func (c *fakePGConn) ExecContext(ctx context.Context, query string, args []drive
 		job.FinishedAt = &finishedAt
 		job.LastErrorCode = args[3].Value.(string)
 		job.LastErrorMessage = args[4].Value.(string)
+		if strings.Contains(query, "next_retry_at = NULL") {
+			job.NextRetryAt = nil
+		}
 		job.UpdatedAt = finishedAt
+		c.state.messageJobs[jobID] = job
+		return driver.RowsAffected(1), nil
+	case strings.Contains(query, "UPDATE message_jobs") && strings.Contains(query, "heartbeat_at = $2"):
+		jobID := args[0].Value.(string)
+		job, ok := c.state.messageJobs[jobID]
+		if !ok {
+			return driver.RowsAffected(0), nil
+		}
+		if job.Status != model.MessageJobStatus(args[2].Value.(string)) {
+			return driver.RowsAffected(0), nil
+		}
+		heartbeatAt := args[1].Value.(time.Time)
+		job.HeartbeatAt = &heartbeatAt
+		job.UpdatedAt = heartbeatAt
+		c.state.messageJobs[jobID] = job
+		return driver.RowsAffected(1), nil
+	case strings.Contains(query, "UPDATE message_jobs") && strings.Contains(query, "started_at = NULL"):
+		jobID := args[0].Value.(string)
+		job, ok := c.state.messageJobs[jobID]
+		if !ok {
+			return driver.RowsAffected(0), nil
+		}
+		if job.Status != model.MessageJobStatus(args[3].Value.(string)) {
+			return driver.RowsAffected(0), nil
+		}
+		job.Status = model.MessageJobStatus(args[1].Value.(string))
+		job.WorkerID = ""
+		job.StartedAt = nil
+		job.FinishedAt = nil
+		job.NextRetryAt = nil
+		job.HeartbeatAt = nil
+		job.UpdatedAt = args[2].Value.(time.Time)
 		c.state.messageJobs[jobID] = job
 		return driver.RowsAffected(1), nil
 	case strings.Contains(query, "UPDATE outbox_events") && strings.Contains(query, "attempt_count = attempt_count + 1"):
@@ -400,10 +484,12 @@ func (c *fakePGConn) ExecContext(ctx context.Context, query string, args []drive
 		if !ok {
 			return driver.RowsAffected(0), nil
 		}
-		failedAt := args[3].Value.(time.Time)
+		nextRetryAt := args[3].Value.(time.Time)
+		failedAt := args[4].Value.(time.Time)
 		event.Status = model.OutboxEventStatus(args[1].Value.(string))
 		event.AttemptCount++
 		event.LastError = args[2].Value.(string)
+		event.NextRetryAt = &nextRetryAt
 		event.UpdatedAt = failedAt
 		c.state.outboxEvents[eventID] = event
 		return driver.RowsAffected(1), nil
@@ -417,6 +503,7 @@ func (c *fakePGConn) ExecContext(ctx context.Context, query string, args []drive
 		event.Status = model.OutboxEventStatus(args[1].Value.(string))
 		event.LastError = ""
 		event.PublishedAt = &publishedAt
+		event.NextRetryAt = nil
 		event.UpdatedAt = publishedAt
 		c.state.outboxEvents[eventID] = event
 		return driver.RowsAffected(1), nil
@@ -555,15 +642,91 @@ func (c *fakePGConn) QueryContext(ctx context.Context, query string, args []driv
 			}
 		}
 		return &fakeRows{}, nil
+	case strings.Contains(query, "FROM message_jobs") && strings.Contains(query, "COALESCE(heartbeat_at, updated_at) < $2"):
+		cutoff := args[1].Value.(time.Time)
+		limit := int(args[2].Value.(int64))
+		jobs := make([]model.MessageJob, 0)
+		for _, job := range c.state.messageJobs {
+			if job.Status != model.MessageJobProcessing {
+				continue
+			}
+			lastBeat := job.UpdatedAt
+			if job.HeartbeatAt != nil {
+				lastBeat = *job.HeartbeatAt
+			}
+			if lastBeat.Before(cutoff) {
+				jobs = append(jobs, job)
+			}
+		}
+		sort.SliceStable(jobs, func(i, j int) bool {
+			if jobs[i].UpdatedAt.Equal(jobs[j].UpdatedAt) {
+				return jobs[i].ID < jobs[j].ID
+			}
+			return jobs[i].UpdatedAt.Before(jobs[j].UpdatedAt)
+		})
+		return messageJobRows(jobs[:minInt(len(jobs), limit)]), nil
+	case strings.Contains(query, "FROM message_jobs") && strings.Contains(query, "next_retry_at <= $2"):
+		now := args[1].Value.(time.Time)
+		limit := int(args[2].Value.(int64))
+		jobs := make([]model.MessageJob, 0)
+		for _, job := range c.state.messageJobs {
+			if job.Status != model.MessageJobRetryableFailed || job.NextRetryAt == nil {
+				continue
+			}
+			if !job.NextRetryAt.After(now) && job.AttemptCount < job.MaxAttempts {
+				jobs = append(jobs, job)
+			}
+		}
+		sort.SliceStable(jobs, func(i, j int) bool {
+			if jobs[i].NextRetryAt.Equal(*jobs[j].NextRetryAt) {
+				return jobs[i].ID < jobs[j].ID
+			}
+			return jobs[i].NextRetryAt.Before(*jobs[j].NextRetryAt)
+		})
+		return messageJobRows(jobs[:minInt(len(jobs), limit)]), nil
 	case strings.Contains(query, "FROM outbox_events"):
+		if strings.Contains(query, "JOIN message_jobs") {
+			limit := int(args[2].Value.(int64))
+			rows := &fakeRows{
+				cols: []string{
+					"id", "aggregate_type", "aggregate_id", "event_type", "payload_json",
+					"status", "attempt_count", "last_error", "created_at", "published_at", "next_retry_at", "updated_at",
+					"job_id", "message_id", "session_id", "user_id", "job_status",
+					"job_attempt_count", "max_attempts", "worker_id",
+					"queued_at", "started_at", "finished_at",
+					"last_error_code", "last_error_message", "latency_ms",
+					"job_next_retry_at", "heartbeat_at", "job_created_at", "job_updated_at",
+				},
+			}
+			for _, event := range c.state.outboxEvents {
+				if event.Status != model.OutboxEventStatus(args[0].Value.(string)) {
+					continue
+				}
+				job, ok := c.state.messageJobs[event.AggregateID]
+				if !ok || job.Status != model.MessageJobStatus(args[1].Value.(string)) {
+					continue
+				}
+				eventRow := outboxEventRow(event)
+				jobRow := messageJobRow(job)
+				rows.data = append(rows.data, append(eventRow, jobRow...))
+				if limit > 0 && len(rows.data) >= limit {
+					break
+				}
+			}
+			return rows, nil
+		}
 		statuses := make(map[string]struct{}, len(args)-1)
 		for _, arg := range args[:len(args)-1] {
 			statuses[arg.Value.(string)] = struct{}{}
 		}
 		limit := int(args[len(args)-1].Value.(int64))
 		events := make([]model.OutboxEvent, 0)
+		now := time.Now().UTC()
 		for _, event := range c.state.outboxEvents {
 			if _, ok := statuses[string(event.Status)]; ok {
+				if event.Status == model.OutboxEventFailed && event.NextRetryAt != nil && event.NextRetryAt.After(now) {
+					continue
+				}
 				events = append(events, event)
 			}
 		}
@@ -842,45 +1005,57 @@ func messageJobRows(jobs []model.MessageJob) driver.Rows {
 			"attempt_count", "max_attempts", "worker_id",
 			"queued_at", "started_at", "finished_at",
 			"last_error_code", "last_error_message", "latency_ms",
-			"created_at", "updated_at",
+			"next_retry_at", "heartbeat_at", "created_at", "updated_at",
 		},
 		data: make([][]driver.Value, 0, len(jobs)),
 	}
 	for _, job := range jobs {
-		row := []driver.Value{
-			job.ID,
-			job.MessageID,
-			job.SessionID,
-			job.UserID,
-			string(job.Status),
-			int64(job.AttemptCount),
-			int64(job.MaxAttempts),
-			job.WorkerID,
-			job.QueuedAt,
-			nil,
-			nil,
-			job.LastErrorCode,
-			job.LastErrorMessage,
-			job.LatencyMS,
-			job.CreatedAt,
-			job.UpdatedAt,
-		}
-		if job.StartedAt != nil {
-			row[9] = *job.StartedAt
-		}
-		if job.FinishedAt != nil {
-			row[10] = *job.FinishedAt
-		}
-		rows.data = append(rows.data, row)
+		rows.data = append(rows.data, messageJobRow(job))
 	}
 	return rows
+}
+
+func messageJobRow(job model.MessageJob) []driver.Value {
+	row := []driver.Value{
+		job.ID,
+		job.MessageID,
+		job.SessionID,
+		job.UserID,
+		string(job.Status),
+		int64(job.AttemptCount),
+		int64(job.MaxAttempts),
+		job.WorkerID,
+		job.QueuedAt,
+		nil,
+		nil,
+		job.LastErrorCode,
+		job.LastErrorMessage,
+		job.LatencyMS,
+		nil,
+		nil,
+		job.CreatedAt,
+		job.UpdatedAt,
+	}
+	if job.StartedAt != nil {
+		row[9] = *job.StartedAt
+	}
+	if job.FinishedAt != nil {
+		row[10] = *job.FinishedAt
+	}
+	if job.NextRetryAt != nil {
+		row[14] = *job.NextRetryAt
+	}
+	if job.HeartbeatAt != nil {
+		row[15] = *job.HeartbeatAt
+	}
+	return row
 }
 
 func outboxEventRows(events []model.OutboxEvent, limit int) driver.Rows {
 	rows := &fakeRows{
 		cols: []string{
 			"id", "aggregate_type", "aggregate_id", "event_type", "payload_json",
-			"status", "attempt_count", "last_error", "created_at", "published_at", "updated_at",
+			"status", "attempt_count", "last_error", "created_at", "published_at", "next_retry_at", "updated_at",
 		},
 		data: make([][]driver.Value, 0, len(events)),
 	}
@@ -888,25 +1063,33 @@ func outboxEventRows(events []model.OutboxEvent, limit int) driver.Rows {
 		if limit > 0 && i >= limit {
 			break
 		}
-		row := []driver.Value{
-			event.ID,
-			event.AggregateType,
-			event.AggregateID,
-			event.EventType,
-			[]byte(event.PayloadJSON),
-			string(event.Status),
-			int64(event.AttemptCount),
-			event.LastError,
-			event.CreatedAt,
-			nil,
-			event.UpdatedAt,
-		}
-		if event.PublishedAt != nil {
-			row[9] = *event.PublishedAt
-		}
-		rows.data = append(rows.data, row)
+		rows.data = append(rows.data, outboxEventRow(event))
 	}
 	return rows
+}
+
+func outboxEventRow(event model.OutboxEvent) []driver.Value {
+	row := []driver.Value{
+		event.ID,
+		event.AggregateType,
+		event.AggregateID,
+		event.EventType,
+		[]byte(event.PayloadJSON),
+		string(event.Status),
+		int64(event.AttemptCount),
+		event.LastError,
+		event.CreatedAt,
+		nil,
+		nil,
+		event.UpdatedAt,
+	}
+	if event.PublishedAt != nil {
+		row[9] = *event.PublishedAt
+	}
+	if event.NextRetryAt != nil {
+		row[10] = *event.NextRetryAt
+	}
+	return row
 }
 
 func knowledgeRows(chunks []fakeKnowledgeChunk, limit int) driver.Rows {
@@ -980,6 +1163,13 @@ func sortKnowledgeByScore(chunks []fakeKnowledgeChunk) {
 		}
 		return scoreI > scoreJ
 	})
+}
+
+func minInt(a int, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func extractFakeScore(raw []byte) float64 {
